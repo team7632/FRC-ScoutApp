@@ -2,7 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'CreateRoomPage.dart';
 import 'RoomListPage.dart';
-import 'People.dart'; // 記得導入註冊頁面，以便登出後跳轉
+import 'People.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key});
@@ -27,11 +27,9 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  // --- 登出功能邏輯 ---
   Future<void> _handleLogout() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 顯示確認對話框
     showCupertinoDialog(
       context: context,
       builder: (context) => CupertinoAlertDialog(
@@ -43,12 +41,11 @@ class _MyHomePageState extends State<MyHomePage> {
             onPressed: () => Navigator.pop(context),
           ),
           CupertinoDialogAction(
-            isDestructiveAction: true, // 顯示紅色字體表示破壞性操作
+            isDestructiveAction: true,
             child: const Text("確定"),
             onPressed: () async {
-              await prefs.clear(); // 清除所有儲存的資料 (包括 username)
+              await prefs.clear();
               if (mounted) {
-                // 跳轉回註冊頁，並清空之前的頁面路徑
                 Navigator.of(context).pushAndRemoveUntil(
                   CupertinoPageRoute(builder: (context) => const People()),
                       (route) => false,
@@ -64,65 +61,88 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.systemGroupedBackground,
+      backgroundColor: CupertinoColors.secondaryLabel,
       navigationBar: CupertinoNavigationBar(
         middle: const Text('Room Dashboard'),
-        backgroundColor: CupertinoColors.activeBlue,
-        // 在右上角加入登出按鈕
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: _handleLogout,
-          child: const Icon(CupertinoIcons.square_arrow_right, color: CupertinoColors.quaternaryLabel),
+          child: const Icon(CupertinoIcons.square_arrow_right),
         ),
       ),
       child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              "Hi, $_currentUserName",
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: CupertinoColors.label,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 30),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                "Hi, $_currentUserName",
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: CupertinoColors.activeBlue,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              "歡迎回來！",
-              style: TextStyle(color: CupertinoColors.systemGrey),
-            ),
-            const SizedBox(height: 30),
-            const Icon(CupertinoIcons.square_stack_3d_up_fill,
-                size: 80, color: CupertinoColors.systemGrey),
-            const SizedBox(height: 40),
-            CupertinoButton.filled(
-              onPressed: () => Navigator.push(
-                  context, CupertinoPageRoute(builder: (context) => const CreateRoomPage())
+              const SizedBox(height: 10),
+              const Text(
+                "歡迎回來！",
+                style: TextStyle(color: CupertinoColors.secondaryLabel, fontSize: 16),
               ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(CupertinoIcons.add),
-                  Text(' Create Room via API'),
-                ],
+              const SizedBox(height: 40),
+              const Icon(
+                CupertinoIcons.square_stack_3d_up_fill,
+                size: 100,
+                color: CupertinoColors.systemGrey3,
               ),
-            ),
-            const SizedBox(height: 15),
-            CupertinoButton(
-              color: CupertinoColors.activeGreen,
-              onPressed: () => Navigator.push(
-                  context, CupertinoPageRoute(builder: (context) => const RoomListPage())
+              const SizedBox(height: 50),
+
+              // 建立房間按鈕
+              SizedBox(
+                width: double.infinity, // 讓按鈕撐滿寬度
+                child: CupertinoButton.filled(
+                  color: CupertinoColors.systemPurple,
+                  onPressed: () => Navigator.push(
+                    context,
+                    CupertinoPageRoute(builder: (context) => const CreateRoomPage()),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(CupertinoIcons.add),
+                      SizedBox(width: 8),
+                      Text('Create Room via API'),
+                    ],
+                  ),
+                ),
               ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(CupertinoIcons.list_bullet),
-                  Text(' View Rooms from Server'),
-                ],
+
+              const SizedBox(height: 15),
+
+              // 查看房間清單按鈕
+              SizedBox(
+                width: double.infinity,
+                child: CupertinoButton(
+                  color: CupertinoColors.systemPurple.withOpacity(0.1),
+                  onPressed: () => Navigator.push(
+                    context,
+                    CupertinoPageRoute(builder: (context) => const RoomListPage()),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(CupertinoIcons.list_bullet, color: CupertinoColors.systemPurple),
+                      SizedBox(width: 8),
+                      Text(
+                        'View Rooms from Server',
+                        style: TextStyle(color: CupertinoColors.systemPurple),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

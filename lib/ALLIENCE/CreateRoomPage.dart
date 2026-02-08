@@ -28,14 +28,13 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
 
       final String? currentUserName = prefs.getString('username');
 
-      // Debug 輸出：請觀察控制台是否印出你的名字
       debugPrint("---------------------------------");
       debugPrint("📱 讀取測試結果: [$currentUserName]");
       debugPrint("📱 所有儲存的 Keys: ${prefs.getKeys()}");
       debugPrint("---------------------------------");
 
       final response = await http.post(
-        Uri.parse('http://192.168.1.128:3000'),
+        Uri.parse('http://192.168.1.128:3000/v1/rooms/create'),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',

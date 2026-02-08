@@ -160,8 +160,8 @@ class _AdminConfigState extends State<AdminConfig> {
             ),
 
             // --- 第三部分：人員與隊伍分配 ---
-            _buildAllianceSection("紅方聯軍 (Red Alliance)", ["Red 1", "Red 2", "Red 3"], CupertinoColors.systemRed),
-            _buildAllianceSection("藍方聯軍 (Blue Alliance)", ["Blue 1", "Blue 2", "Blue 3"], CupertinoColors.systemBlue),
+            _buildAllianceSection("(Red Alliance)", ["Red 1", "Red 2", "Red 3"], CupertinoColors.systemRed),
+            _buildAllianceSection("(Blue Alliance)", ["Blue 1", "Blue 2", "Blue 3"], CupertinoColors.systemBlue),
 
             const Padding(
               padding: EdgeInsets.all(16.0),
