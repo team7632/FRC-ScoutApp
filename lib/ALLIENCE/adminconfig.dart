@@ -1,8 +1,9 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart'; // 為了 DataTable 與 Colors
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'alltotal.dart'; // 確保你已經建立了這個檔案
+import 'dart:async'; // 引入 Timer 用於防抖
+import 'alltotal.dart';
+import 'api.dart';
 
 class AdminConfig extends StatefulWidget {
   final String roomName;
@@ -13,98 +14,234 @@ class AdminConfig extends StatefulWidget {
 }
 
 class _AdminConfigState extends State<AdminConfig> {
-  // 1. 人員控制項 (誰在哪個位置)
-  final Map<String, TextEditingController> _userControllers = {
-    'Red 1': TextEditingController(),
-    'Red 2': TextEditingController(),
-    'Red 3': TextEditingController(),
-    'Blue 1': TextEditingController(),
-    'Blue 2': TextEditingController(),
-    'Blue 3': TextEditingController(),
-  };
-
-  // 2. 隊伍控制項 (這位置這場比賽是哪隊)
-  final Map<String, TextEditingController> _teamControllers = {
-    'Red 1': TextEditingController(),
-    'Red 2': TextEditingController(),
-    'Red 3': TextEditingController(),
-    'Blue 1': TextEditingController(),
-    'Blue 2': TextEditingController(),
-    'Blue 3': TextEditingController(),
-  };
-
-  // 3. 場次控制
-  final TextEditingController _matchController = TextEditingController(text: "1");
-
-  final String serverIp = "192.168.1.128";
+  final String serverIp = Api.serverIp;
   bool _isLoading = true;
-  bool _isSaving = false;
+  bool _isAutoSaving = false; // 顯示自動儲存狀態
+  Timer? _debounce;
+
+  int _viewingMatch = 1;
+  List<int> _availableMatches = [1];
+  List<String> _allActiveUsers = ["尚未分配"];
+
+  final Map<String, TextEditingController> _userControllers = {
+    'Red 1': TextEditingController(text: "尚未分配"), 'Red 2': TextEditingController(text: "尚未分配"), 'Red 3': TextEditingController(text: "尚未分配"),
+    'Blue 1': TextEditingController(text: "尚未分配"), 'Blue 2': TextEditingController(text: "尚未分配"), 'Blue 3': TextEditingController(text: "尚未分配"),
+  };
+  final Map<String, TextEditingController> _teamControllers = {
+    'Red 1': TextEditingController(), 'Red 2': TextEditingController(), 'Red 3': TextEditingController(),
+    'Blue 1': TextEditingController(), 'Blue 2': TextEditingController(), 'Blue 3': TextEditingController(),
+  };
 
   @override
   void initState() {
     super.initState();
-    _fetchCurrentConfig();
+    _fetchConfigForMatch(1);
   }
 
-  // 從伺服器抓取目前配置 (獲取已有的分配與隊伍)
-  Future<void> _fetchCurrentConfig() async {
+  @override
+  void dispose() {
+    _debounce?.cancel(); // 銷毀時取消計時器
+    super.dispose();
+  }
+
+  // 觸發自動儲存（防抖）
+  void _onDataChanged() {
+    setState(() => _isAutoSaving = true);
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 800), () {
+      _saveCurrentEdit();
+    });
+  }
+
+  Future<void> _fetchConfigForMatch(int matchNum) async {
+    setState(() => _isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('http://$serverIp:3000/v1/rooms/check-my-pos?roomName=${widget.roomName}&user=admin_view'),
+        Uri.parse('http://$serverIp:3000/v1/rooms/get-match-config?roomName=${widget.roomName}&match=$matchNum'),
       );
 
       if (response.statusCode == 200) {
-        // 這裡你可以擴充伺服器回傳完整的 assignments 列表
-        // 目前我們先維持載入狀態
-        setState(() => _isLoading = false);
+        final data = jsonDecode(response.body);
+        setState(() {
+          _viewingMatch = matchNum;
+          List<String> users = List<String>.from(data['activeUsers'] ?? []);
+          _allActiveUsers = ["尚未分配", ...users];
+          if (data['availableMatches'] != null) {
+            _availableMatches = List<int>.from(data['availableMatches']);
+          }
+
+          final Map<String, dynamic> assignedFromServer = data['assigned'] ?? {};
+          assignedFromServer.forEach((k, v) {
+            if (_userControllers[k] != null) {
+              String val = v.toString();
+              _userControllers[k]!.text = (val.isEmpty || val == "null") ? "尚未分配" : val;
+            }
+          });
+
+          final Map<String, dynamic> teams = data['teams'] ?? {};
+          _teamControllers.forEach((k, v) {
+            v.text = teams[k]?.toString() ?? "";
+          });
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      debugPrint("載入配置失敗: $e");
       setState(() => _isLoading = false);
     }
   }
 
-  // 發布配置到伺服器
-  Future<void> _saveAssignment() async {
-    setState(() => _isSaving = true);
-
+  Future<void> _saveCurrentEdit() async {
     Map<String, String> userMap = {};
     Map<String, String> teamMap = {};
 
-    _userControllers.forEach((k, v) => userMap[k] = v.text.trim());
+    _userControllers.forEach((k, v) {
+      userMap[k] = (v.text == "尚未分配") ? "" : v.text;
+    });
     _teamControllers.forEach((k, v) => teamMap[k] = v.text.trim());
 
     try {
-      final response = await http.post(
-        Uri.parse('http://$serverIp:3000/v1/rooms/assign'),
+      await http.post(
+        Uri.parse('http://$serverIp:3000/v1/rooms/save-config'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'roomName': widget.roomName,
-          'matchNumber': _matchController.text,
+          'matchNumber': _viewingMatch.toString(),
           'assignments': userMap,
           'teams': teamMap,
         }),
       );
-
-      if (response.statusCode == 200) {
-        if (mounted) {
-          showCupertinoDialog(
-            context: context,
-            builder: (c) => CupertinoAlertDialog(
-              title: const Text("成功"),
-              content: const Text("配置已發布給所有成員"),
-              actions: [
-                CupertinoDialogAction(child: const Text("確定"), onPressed: () => Navigator.pop(c))
-              ],
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint("儲存失敗: $e");
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) setState(() => _isAutoSaving = false);
     }
+  }
+
+  Future<void> _pushMatchToScouts() async {
+    try {
+      await http.post(
+        Uri.parse('http://$serverIp:3000/v1/rooms/set-current-match'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'roomName': widget.roomName,
+          'matchNumber': _viewingMatch.toString(),
+        }),
+      );
+      _showDialog("發布成功", "全員已同步至 Match $_viewingMatch");
+    } catch (e) {
+      _showDialog("錯誤", "發布失敗");
+    }
+  }
+
+  void _showUserPicker(String position) {
+    int currentIndex = _allActiveUsers.indexOf(_userControllers[position]!.text);
+    if (currentIndex == -1) currentIndex = 0;
+
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => Container(
+        height: 250,
+        color: CupertinoColors.systemBackground,
+        child: Column(
+          children: [
+            Container(
+              height: 50,
+              color: CupertinoColors.secondarySystemBackground,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  CupertinoButton(
+                    child: const Text("確定"),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _onDataChanged(); // 關閉彈窗後觸發儲存
+                    },
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CupertinoPicker(
+                itemExtent: 32,
+                scrollController: FixedExtentScrollController(initialItem: currentIndex),
+                onSelectedItemChanged: (i) {
+                  setState(() {
+                    _userControllers[position]!.text = _allActiveUsers[i];
+                  });
+                  // 滾動停止時也會觸發，但搭配確定按鈕更保險
+                },
+                children: _allActiveUsers.map((name) => Center(child: Text(name))).toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMatchPicker() {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => Container(
+        height: 250,
+        color: CupertinoColors.systemBackground,
+        child: Column(
+          children: [
+            Container(
+              height: 50,
+              color: CupertinoColors.secondarySystemBackground,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  CupertinoButton(
+                      child: const Text("取消"),
+                      onPressed: () => Navigator.pop(context)
+                  ),
+                  // 補回新增場次按鈕
+                  CupertinoButton(
+                      child: const Text("新增場次"),
+                      onPressed: () {
+                        int next = (_availableMatches.isEmpty ? 0 : _availableMatches.last) + 1;
+                        setState(() {
+                          if (!_availableMatches.contains(next)) {
+                            _availableMatches.add(next);
+                            _availableMatches.sort();
+                          }
+                        });
+                        _fetchConfigForMatch(next); // 切換到新場次
+                        Navigator.pop(context);
+                      }
+                  ),
+                  CupertinoButton(
+                      child: const Text("確定"),
+                      onPressed: () => Navigator.pop(context)
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CupertinoPicker(
+                itemExtent: 32,
+                scrollController: FixedExtentScrollController(
+                    initialItem: _availableMatches.indexOf(_viewingMatch)
+                ),
+                onSelectedItemChanged: (i) => _fetchConfigForMatch(_availableMatches[i]),
+                children: _availableMatches.map((m) => Text("Match $m")).toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDialog(String title, String content) {
+    showCupertinoDialog(
+      context: context,
+      builder: (c) => CupertinoAlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [CupertinoDialogAction(child: const Text("確定"), onPressed: () => Navigator.pop(c))],
+      ),
+    );
   }
 
   @override
@@ -112,64 +249,47 @@ class _AdminConfigState extends State<AdminConfig> {
     return CupertinoPageScaffold(
       backgroundColor: CupertinoColors.systemGroupedBackground,
       navigationBar: CupertinoNavigationBar(
-        middle: Text("${widget.roomName} 管理員模式"),
-        trailing: _isSaving
+        middle: const Text("管理員部署"),
+        trailing: _isAutoSaving
             ? const CupertinoActivityIndicator()
-            : CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: _saveAssignment,
-          child: const Text("發布配置", style: TextStyle(fontWeight: FontWeight.bold)),
-        ),
+            : const Icon(CupertinoIcons.cloud_heavyrain_fill, size: 20, color: CupertinoColors.systemGrey),
       ),
       child: SafeArea(
-        child: _isLoading
-            ? const Center(child: CupertinoActivityIndicator())
-            : ListView(
+        child: _isLoading ? const Center(child: CupertinoActivityIndicator()) : ListView(
           children: [
-            // --- 第一部分：數據分析入口 ---
-        CupertinoListTile(
-        title: const Text("查看總體數據統計", style: TextStyle(color: CupertinoColors.activeBlue)),
-        leading: const Icon(CupertinoIcons.chart_bar_square, color: CupertinoColors.activeBlue),
-        trailing: const CupertinoListTileChevron(),
-        onTap: () { // <-- 修改為 onTap
-          Navigator.push(
-            context,
-            CupertinoPageRoute(builder: (c) => AllTotalPage(roomName: widget.roomName)),
-          );
-        },
-      ),
-
-            // --- 第二部分：比賽基本資訊 ---
             CupertinoListSection.insetGrouped(
-              header: const Text("賽事設定"),
               children: [
                 CupertinoListTile(
-                  title: const Text("目前場次 (Match #)"),
-                  additionalInfo: SizedBox(
-                    width: 100,
-                    child: CupertinoTextField(
-                      controller: _matchController,
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.right,
-                      placeholder: "1",
-                      decoration: null,
-                    ),
-                  ),
+                  title: const Text("查看總體數據統計"),
+                  trailing: const CupertinoListTileChevron(),
+                  onTap: () => Navigator.push(context, CupertinoPageRoute(builder: (c) => AllTotalPage(roomName: widget.roomName))),
                 ),
               ],
             ),
 
-            // --- 第三部分：人員與隊伍分配 ---
-            _buildAllianceSection("(Red Alliance)", ["Red 1", "Red 2", "Red 3"], CupertinoColors.systemRed),
-            _buildAllianceSection("(Blue Alliance)", ["Blue 1", "Blue 2", "Blue 3"], CupertinoColors.systemBlue),
-
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Text(
-                "* 當你點擊「發布配置」時，隊員的手機會即時更新他們負責的隊伍號碼與場次。",
-                style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 13),
-              ),
+            CupertinoListSection.insetGrouped(
+              header: const Text("場次管理"),
+              children: [
+                CupertinoListTile(
+                  title: const Text("目前編輯場次"),
+                  additionalInfo: CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _showMatchPicker,
+                    child: Text("Match $_viewingMatch ▾", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                CupertinoListTile(
+                  title: const Text("同步場次", style: TextStyle(color: CupertinoColors.activeOrange)),
+                  subtitle: const Text("同步才會切換場次"),
+                  trailing: const Icon(CupertinoIcons.antenna_radiowaves_left_right, color: CupertinoColors.activeOrange),
+                  onTap: _pushMatchToScouts,
+                ),
+              ],
             ),
+
+            _buildAllianceGroup("Red Alliance", ["Red 1", "Red 2", "Red 3"], CupertinoColors.systemRed),
+            _buildAllianceGroup("Blue Alliance", ["Blue 1", "Blue 2", "Blue 3"], CupertinoColors.systemBlue),
+
             const SizedBox(height: 40),
           ],
         ),
@@ -177,45 +297,33 @@ class _AdminConfigState extends State<AdminConfig> {
     );
   }
 
-  // 建構聯軍區塊的輔助函式
-  Widget _buildAllianceSection(String title, List<String> positions, Color color) {
+  Widget _buildAllianceGroup(String title, List<String> positions, Color color) {
     return CupertinoListSection.insetGrouped(
       header: Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-      children: positions.map((pos) {
-        return CupertinoListTile(
-          title: Text(pos, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-          subtitle: SizedBox(
-            height: 35,
-            child: CupertinoTextField(
-              controller: _userControllers[pos],
-              placeholder: "派發人員名稱",
-              placeholderStyle: const TextStyle(fontSize: 12, color: CupertinoColors.placeholderText),
-              style: const TextStyle(fontSize: 14),
-              decoration: null,
-            ),
+      children: positions.map((pos) => CupertinoListTile(
+        title: Text(pos, style: const TextStyle(fontSize: 13, color: CupertinoColors.secondaryLabel)),
+        subtitle: CupertinoButton(
+          padding: EdgeInsets.zero,
+          alignment: Alignment.centerLeft,
+          onPressed: () => _showUserPicker(pos),
+          child: Text(
+            _userControllers[pos]!.text,
+            style: const TextStyle(fontSize: 17, color: CupertinoColors.label),
           ),
-          additionalInfo: SizedBox(
-            width: 100,
-            child: CupertinoTextField(
-              controller: _teamControllers[pos],
-              placeholder: "隊號",
-              placeholderStyle: const TextStyle(fontSize: 12, color: CupertinoColors.placeholderText),
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.right,
-              style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16),
-              decoration: null,
-            ),
+        ),
+        additionalInfo: SizedBox(
+          width: 85,
+          child: CupertinoTextField(
+            controller: _teamControllers[pos],
+            placeholder: "隊號",
+            onChanged: (v) => _onDataChanged(), // 輸入變化即觸發
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.right,
+            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 18),
+            decoration: null,
           ),
-        );
-      }).toList(),
+        ),
+      )).toList(),
     );
-  }
-
-  @override
-  void dispose() {
-    _matchController.dispose();
-    _userControllers.forEach((_, v) => v.dispose());
-    _teamControllers.forEach((_, v) => v.dispose());
-    super.dispose();
   }
 }

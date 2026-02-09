@@ -7,8 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // 導入相關頁面
 import 'AdminConfig.dart';
-import 'allconfig2.dart'; // 全員查看與修正頁面
-import 'scouting.dart';   // 實際錄入數據頁面
+import 'allconfig2.dart';
+import 'api.dart';
+import 'scouting.dart';
 
 class StartScout extends StatefulWidget {
   final String roomName;
@@ -23,19 +24,20 @@ class _StartScoutState extends State<StartScout> {
   int _selectedAlliance = 0; // 0: Red, 1: Blue
   String _assignedPosition = "正在檢查分配...";
   String _matchNumber = "-";
-  List<String> _activeUsers = []; // 儲存當前房間所有成員
+  List<String> _activeUsers = [];
   bool _isChecking = true;
   bool _isAdmin = false;
+  bool _hasRecorded = false; // [新增] 當前場次是否已上傳過報告
   String? _currentUserName;
   Timer? _refreshTimer;
 
-  final String serverIp = "192.168.1.128";
+  final String serverIp = Api.serverIp;
 
   @override
   void initState() {
     super.initState();
     _initData();
-    // 啟動定時刷新：每 5 秒同步一次最新場次、隊號與成員清單
+    // 啟動定時刷新：每 5 秒同步一次最新場次、隊號與上傳狀態
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (mounted) _checkAssignment();
     });
@@ -85,34 +87,49 @@ class _StartScoutState extends State<StartScout> {
     }
   }
 
-  // 核心功能：同步伺服器的最新分配與成員名單
+  // --- 核心同步邏輯：檢查場次、隊伍、以及「是否重複錄入」 ---
   Future<void> _checkAssignment() async {
     try {
-      final url = 'http://$serverIp:3000/v1/rooms/assignments?roomName=${widget.roomName}';
-      final response = await http.get(Uri.parse(url));
+      final assignUrl = 'http://$serverIp:3000/v1/rooms/assignments?roomName=${widget.roomName}';
+      final reportUrl = 'http://$serverIp:3000/v1/rooms/all-reports?roomName=${widget.roomName}';
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      // 同時檢查分配與所有報告
+      final responses = await Future.wait([
+        http.get(Uri.parse(assignUrl)),
+        http.get(Uri.parse(reportUrl)),
+      ]);
+
+      if (responses[0].statusCode == 200 && responses[1].statusCode == 200) {
+        final data = jsonDecode(responses[0].body);
+        final List reports = jsonDecode(responses[1].body);
+
         final Map<String, dynamic> assignedMap = data['assigned'] ?? {};
+        final Map<String, dynamic> teamsMap = data['teams'] ?? {};
+        final String remoteMatch = data['matchNumber']?.toString() ?? "1";
 
-        // 尋找自己的分配位置
         String? myPos;
         assignedMap.forEach((pos, user) {
           if (user == _currentUserName) myPos = pos;
         });
 
+        // [關鍵邏輯]：檢查該房間是否有「這場次 + 這位置」的紀錄
+        bool recorded = reports.any((r) =>
+        r['matchNumber'].toString() == remoteMatch &&
+            r['position'] == myPos);
+
         if (mounted) {
           setState(() {
             _assignedPosition = myPos ?? "尚未分配位置";
-            _matchNumber = data['matchNumber']?.toString() ?? "1";
+            _matchNumber = remoteMatch;
             _activeUsers = List<String>.from(data['activeUsers'] ?? []);
+            _hasRecorded = recorded;
 
-            // 更新管理員設定的隊號
-            if (myPos != null && data['teams'] != null) {
-              _teamController.text = data['teams'][myPos]?.toString() ?? "";
+            if (myPos != null) {
+              _teamController.text = teamsMap[myPos]?.toString() ?? "";
+            } else {
+              _teamController.text = "";
             }
 
-            // 根據位置自動切換紅藍樣式
             if (_assignedPosition.startsWith('Red')) {
               _selectedAlliance = 0;
             } else if (_assignedPosition.startsWith('Blue')) {
@@ -126,7 +143,6 @@ class _StartScoutState extends State<StartScout> {
     }
   }
 
-  // 彈出顯示成員列表
   void _showActiveUsers() {
     showCupertinoModalPopup(
       context: context,
@@ -134,10 +150,7 @@ class _StartScoutState extends State<StartScout> {
         title: Text("${widget.roomName} 成員列表"),
         message: Text(_activeUsers.isNotEmpty ? _activeUsers.join("、") : "尚無其他成員"),
         actions: [
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("關閉"),
-          ),
+          CupertinoActionSheetAction(onPressed: () => Navigator.pop(context), child: const Text("關閉")),
         ],
       ),
     );
@@ -145,9 +158,12 @@ class _StartScoutState extends State<StartScout> {
 
   @override
   Widget build(BuildContext context) {
-    Color themeColor = _selectedAlliance == 0
-        ? CupertinoColors.systemRed
-        : CupertinoColors.systemBlue;
+    Color themeColor = _selectedAlliance == 0 ? CupertinoColors.systemRed : CupertinoColors.systemBlue;
+
+    // 狀態判定邏輯
+    bool isTeamEmpty = _teamController.text.isEmpty || _teamController.text == "---" || _teamController.text == "";
+    // 必須有隊號、有位置、且這場還沒錄過，才能開始
+    bool canStart = !isTeamEmpty && !_assignedPosition.contains("尚未") && !_hasRecorded;
 
     return CupertinoPageScaffold(
       backgroundColor: CupertinoColors.systemGroupedBackground,
@@ -162,10 +178,7 @@ class _StartScoutState extends State<StartScout> {
           padding: EdgeInsets.zero,
           child: const Icon(CupertinoIcons.settings),
           onPressed: () {
-            Navigator.push(
-              context,
-              CupertinoPageRoute(builder: (c) => AdminConfig(roomName: widget.roomName)),
-            ).then((_) => _checkAssignment());
+            Navigator.push(context, CupertinoPageRoute(builder: (c) => AdminConfig(roomName: widget.roomName))).then((_) => _checkAssignment());
           },
         ) : null,
       ),
@@ -185,7 +198,7 @@ class _StartScoutState extends State<StartScout> {
                 ),
                 child: Column(
                   children: [
-                    Text("我的分配位置", style: TextStyle(color: themeColor.withOpacity(0.8), fontSize: 14)),
+                    Text("分配位置", style: TextStyle(color: themeColor.withOpacity(0.8), fontSize: 14)),
                     const SizedBox(height: 8),
                     Text(_assignedPosition, style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: themeColor)),
                   ],
@@ -198,10 +211,14 @@ class _StartScoutState extends State<StartScout> {
 
               // 2. 隊號顯示框
               CupertinoTextField(
-                controller: _teamController,
+                controller: isTeamEmpty ? TextEditingController(text: "---") : _teamController,
                 readOnly: true,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: themeColor),
+                style: TextStyle(
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                    color: isTeamEmpty ? CupertinoColors.systemGrey4 : themeColor
+                ),
                 decoration: BoxDecoration(
                   color: CupertinoColors.white,
                   borderRadius: BorderRadius.circular(12),
@@ -212,21 +229,45 @@ class _StartScoutState extends State<StartScout> {
 
               const SizedBox(height: 40),
 
-              // 3. 主要動作：開始錄入
+              // 3. 主要按鈕：加入重複錄入檢查
               SizedBox(
                 width: double.infinity,
                 child: CupertinoButton.filled(
                   borderRadius: BorderRadius.circular(12),
-                  onPressed: (_teamController.text.isEmpty || _assignedPosition.contains("尚未"))
-                      ? null
-                      : () => _goScouting(),
-                  child: const Text("開始錄入數據", style: TextStyle(fontWeight: FontWeight.bold)),
+                  onPressed: canStart ? () => _goScouting() : null,
+                  child: Text(
+                    _hasRecorded
+                        ? "本場數據已完成"
+                        : (canStart ? "開始錄入數據" : (isTeamEmpty ? "等待管理員分配..." : "尚未獲取位置")),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
 
-              const SizedBox(height: 15),
+              // 4. 提示文字
+              if (_hasRecorded)
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoColors.systemGreen, size: 18),
+                      SizedBox(width: 6),
+                      Text("You've already recorded this one.！", style: TextStyle(color: CupertinoColors.systemGreen, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
 
-              // 4. 新功能：全員查看/修正按鈕
+              if (_isAdmin && isTeamEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 10),
+                  child: Text("⚠️ 您尚未設定本場隊伍，隊員目前無法開始",
+                      style: TextStyle(color: CupertinoColors.destructiveRed, fontSize: 13, fontWeight: FontWeight.bold)),
+                ),
+
+              const SizedBox(height: 25),
+
+              // 5. 查看/修正按鈕
               SizedBox(
                 width: double.infinity,
                 child: CupertinoButton(

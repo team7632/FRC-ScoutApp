@@ -1,7 +1,9 @@
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart'; // 1. 確保有 import
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'api.dart'; // 1. 確保有 import
 
 class CreateRoomPage extends StatefulWidget {
   const CreateRoomPage({super.key});
@@ -27,6 +29,7 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
       await prefs.reload();
 
       final String? currentUserName = prefs.getString('username');
+      final String serverIp = Api.serverIp;
 
       debugPrint("---------------------------------");
       debugPrint("📱 讀取測試結果: [$currentUserName]");
@@ -34,7 +37,7 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
       debugPrint("---------------------------------");
 
       final response = await http.post(
-        Uri.parse('http://192.168.1.128:3000/v1/rooms/create'),
+        Uri.parse('http://$serverIp:3000/v1/rooms/create'),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',

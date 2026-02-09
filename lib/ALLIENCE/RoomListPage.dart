@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 // 確保導入了 StartScout 頁面
 import 'package:flutter_application_1/ALLIENCE/startscout.dart';
 
+import 'api.dart';
+
 class RoomListPage extends StatefulWidget {
   const RoomListPage({super.key});
 
@@ -15,8 +17,9 @@ class _RoomListPageState extends State<RoomListPage> {
 
   // 從伺服器獲取房間列表的非同步方法
   Future<List<dynamic>> _fetchRooms() async {
-    // 這裡的 URL 對應 Node.js 的 app.get('/v1/rooms')
-    final url = Uri.parse('http://192.168.1.128:3000/v1/rooms');
+    final String serverIp = Api.serverIp;
+
+    final url = Uri.parse('http://$serverIp:3000/v1/rooms');
 
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 5));
