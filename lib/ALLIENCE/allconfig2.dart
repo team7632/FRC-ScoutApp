@@ -103,8 +103,9 @@ class _AllConfig2State extends State<AllConfig2> {
                 Navigator.pop(c);
 
                 try {
+                  // ✅ 修正：直接使用 Api.serverIp，不要手動拼湊 http 或 :3000
                   final response = await http.post(
-                    Uri.parse('http://$serverIp:3000/v1/rooms/update-report'),
+                    Uri.parse('${Api.serverIp}/v1/rooms/update-report'),
                     headers: {'Content-Type': 'application/json'},
                     body: jsonEncode({
                       'roomName': widget.roomName,
@@ -112,12 +113,15 @@ class _AllConfig2State extends State<AllConfig2> {
                       'newAutoCount': newAuto,
                       'newTeleopCount': newTele,
                       'newIsHanging': tempIsHanging,
-                      'newEndgameLevel': tempEndgame // 同步發送 Endgame
+                      'newEndgameLevel': tempEndgame
                     }),
                   );
 
                   if (response.statusCode == 200) {
-                    setState(() => _fetchReports()); // 重新抓取最準確
+                    // ✅ 這裡會觸發 _fetchReports() 重新從伺服器抓資料並 setState
+                    _fetchReports();
+                  } else {
+                    debugPrint("❌ 伺服器回傳錯誤: ${response.statusCode}");
                   }
                 } catch (e) {
                   debugPrint("❌ 更新失敗: $e");
