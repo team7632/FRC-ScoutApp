@@ -67,7 +67,7 @@ class _RegisterPageState extends State<RegisterPage> {
       final String id = googleUser.id;
 
       final response = await http.post(
-        Uri.parse('http://$serverIp:3000/v1/auth/google-login'),
+        Uri.parse('$serverIp/v1/auth/google-login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'username': name,
@@ -186,7 +186,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 const SizedBox(height: 20),
                 const Text(
-                  "簽下生死狀了",
+                  "YEE",
                   style: TextStyle(fontSize: 12, color: CupertinoColors.systemGrey2),
                 )
               ],

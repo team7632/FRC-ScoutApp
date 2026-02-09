@@ -37,7 +37,7 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
       debugPrint("---------------------------------");
 
       final response = await http.post(
-        Uri.parse('http://$serverIp:3000/v1/rooms/create'),
+        Uri.parse('$serverIp/v1/rooms/create'),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',

@@ -57,7 +57,7 @@ class _AdminConfigState extends State<AdminConfig> {
     setState(() => _isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('http://$serverIp:3000/v1/rooms/get-match-config?roomName=${widget.roomName}&match=$matchNum'),
+        Uri.parse('$serverIp/v1/rooms/get-match-config?roomName=${widget.roomName}&match=$matchNum'),
       );
 
       if (response.statusCode == 200) {
@@ -101,7 +101,7 @@ class _AdminConfigState extends State<AdminConfig> {
 
     try {
       await http.post(
-        Uri.parse('http://$serverIp:3000/v1/rooms/save-config'),
+        Uri.parse('$serverIp/v1/rooms/save-config'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'roomName': widget.roomName,
@@ -118,7 +118,7 @@ class _AdminConfigState extends State<AdminConfig> {
   Future<void> _pushMatchToScouts() async {
     try {
       await http.post(
-        Uri.parse('http://$serverIp:3000/v1/rooms/set-current-match'),
+        Uri.parse('$serverIp/v1/rooms/set-current-match'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'roomName': widget.roomName,

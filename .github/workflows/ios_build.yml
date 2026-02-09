@@ -1,0 +1,29 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [ main, master ] # 當你推送到這兩個分支時觸發
+
+jobs:
+  build:
+    runs-on: macos-latest # 這是 GitHub 提供的雲端 Mac
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build iOS (No Sign)
+        run: flutter build ios --release --no-codesign
+        # 因為沒證書，所以先跑 build ios 生成框架
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ios-build
+          path: build/ios/iphoneos

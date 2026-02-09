@@ -28,7 +28,7 @@ class _AllConfig2State extends State<AllConfig2> {
     setState(() => _isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('http://$serverIp:3000/v1/rooms/all-reports?roomName=${widget.roomName}'),
+        Uri.parse('$serverIp/v1/rooms/all-reports?roomName=${widget.roomName}'),
       ).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         setState(() {

@@ -1,3 +1,3 @@
 class Api{
-  static String serverIp = "192.168.1.128";
+  static String serverIp = "https://nonprofit-unchanneled-thea.ngrok-free.dev";
 }

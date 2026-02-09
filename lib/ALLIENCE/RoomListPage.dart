@@ -19,7 +19,7 @@ class _RoomListPageState extends State<RoomListPage> {
   Future<List<dynamic>> _fetchRooms() async {
     final String serverIp = Api.serverIp;
 
-    final url = Uri.parse('http://$serverIp:3000/v1/rooms');
+    final url = Uri.parse('$serverIp/v1/rooms');
 
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 5));
@@ -87,7 +87,7 @@ class _RoomListPageState extends State<RoomListPage> {
                     return CupertinoListTile(
                       title: Text(roomName),
                       // 這裡顯示房間持有人
-                      subtitle: Text("持有人: $ownerName"),
+                      subtitle: Text("OWNER: $ownerName"),
                       leading: const Icon(
                           CupertinoIcons.house_fill,
                           color: CupertinoColors.activeBlue

@@ -31,7 +31,7 @@ class _AllTotalPageState extends State<AllTotalPage> {
     setState(() => _isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('http://$serverIp:3000/v1/rooms/all-reports?roomName=${widget.roomName}'),
+        Uri.parse('$serverIp/v1/rooms/all-reports?roomName=${widget.roomName}'),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -223,7 +223,7 @@ class _AllTotalPageState extends State<AllTotalPage> {
                     children: [
                       _buildStatColumn("AUTO 分", team['avgAuto'], CupertinoColors.systemYellow),
                       _buildStatColumn("TELEOP 分", team['avgTeleop'], CupertinoColors.systemBlue),
-                      _buildStatColumn("總場次", team['matchCount'].toDouble(), CupertinoColors.systemGrey, isInt: true),
+                      _buildStatColumn("Ranking", team['matchCount'].toDouble(), CupertinoColors.systemGrey, isInt: true),
                     ],
                   ),
                   if ((team['notesList'] as List).isNotEmpty) ...[

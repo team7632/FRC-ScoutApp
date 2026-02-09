@@ -61,7 +61,7 @@ class _ScoutingPageState extends State<ScoutingPage> {
     _showLoadingIndicator();
     try {
       final response = await http.post(
-        Uri.parse('http://${Api.serverIp}:3000/v1/rooms/submit-report'),
+        Uri.parse('${Api.serverIp}/v1/rooms/submit-report'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'roomName': widget.roomName,

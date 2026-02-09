@@ -57,7 +57,7 @@ class _StartScoutState extends State<StartScout> {
     // 1. 進入房間報到
     try {
       await http.post(
-        Uri.parse('http://$serverIp:3000/v1/rooms/join'),
+        Uri.parse('$serverIp/v1/rooms/join'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'roomName': widget.roomName, 'user': _currentUserName}),
       );
@@ -74,7 +74,7 @@ class _StartScoutState extends State<StartScout> {
 
   Future<void> _checkRoomAuthority() async {
     try {
-      final response = await http.get(Uri.parse('http://$serverIp:3000/v1/rooms'));
+      final response = await http.get(Uri.parse('$serverIp/v1/rooms'));
       if (response.statusCode == 200) {
         final List rooms = jsonDecode(response.body);
         final currentRoom = rooms.firstWhere((r) => r['name'] == widget.roomName, orElse: () => null);
@@ -90,8 +90,8 @@ class _StartScoutState extends State<StartScout> {
   // --- 核心同步邏輯：檢查場次、隊伍、以及「是否重複錄入」 ---
   Future<void> _checkAssignment() async {
     try {
-      final assignUrl = 'http://$serverIp:3000/v1/rooms/assignments?roomName=${widget.roomName}';
-      final reportUrl = 'http://$serverIp:3000/v1/rooms/all-reports?roomName=${widget.roomName}';
+      final assignUrl = '$serverIp/v1/rooms/assignments?roomName=${widget.roomName}';
+      final reportUrl = '$serverIp/v1/rooms/all-reports?roomName=${widget.roomName}';
 
       // 同時檢查分配與所有報告
       final responses = await Future.wait([
