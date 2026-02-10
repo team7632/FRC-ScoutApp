@@ -1,9 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-// 確保導入了 StartScout 頁面
 import 'package:flutter_application_1/ALLIENCE/startscout.dart';
-
 import 'api.dart';
 
 class RoomListPage extends StatefulWidget {
@@ -14,96 +13,64 @@ class RoomListPage extends StatefulWidget {
 }
 
 class _RoomListPageState extends State<RoomListPage> {
+  final Color _brandPurple = Colors.purple;
 
-  // 從伺服器獲取房間列表的非同步方法
   Future<List<dynamic>> _fetchRooms() async {
     final String serverIp = Api.serverIp;
-
     final url = Uri.parse('$serverIp/v1/rooms');
 
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 5));
-
       if (response.statusCode == 200) {
-        // 成功取得資料
         return jsonDecode(response.body);
       } else {
-        throw Exception('伺服器回應錯誤: ${response.statusCode}');
+        throw Exception('錯誤: ${response.statusCode}');
       }
     } catch (e) {
-      // 捕捉網路連線失敗或逾時
-      throw Exception('無法連線至伺服器: $e');
+      throw Exception('無法連線至伺服器');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.systemGroupedBackground,
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text("伺服器房間列表"),
+      backgroundColor: const Color(0xFFF8F9FA),
+      navigationBar: CupertinoNavigationBar(
+        backgroundColor: Colors.white.withOpacity(0.8),
+        middle: const Text("伺服器房間列表", style: TextStyle(fontWeight: FontWeight.bold)),
       ),
       child: SafeArea(
         child: FutureBuilder<List<dynamic>>(
           future: _fetchRooms(),
           builder: (context, snapshot) {
-            // 1. 載入中狀態
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CupertinoActivityIndicator());
+              return Center(child: CupertinoActivityIndicator(color: _brandPurple));
             }
 
-            // 2. 發生錯誤狀態
-            else if (snapshot.hasError) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(
-                    "Error: ${snapshot.error}",
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: CupertinoColors.destructiveRed),
-                  ),
-                ),
-              );
+            if (snapshot.hasError) {
+              return _buildErrorView(snapshot.error.toString());
             }
 
-            // 3. 資料為空狀態
-            else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-              return const Center(child: Text("目前沒有任何房間"));
+            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return _buildEmptyView();
             }
 
-            // 4. 成功取得資料後的渲染
             final rooms = snapshot.data!;
 
-            return ListView(
-              children: [
-                CupertinoListSection.insetGrouped(
-                  header: const Text("AVAILABLE ROOMS"),
-                  footer: Text("找到 ${rooms.length} 個房間"),
-                  children: rooms.map((room) {
-                    // 從後端回傳的 JSON 中提取資料
-                    final String roomName = room['name'] ?? "未知房間";
-                    final String ownerName = room['owner'] ?? "匿名系統";
-
-                    return CupertinoListTile(
-                      title: Text(roomName),
-                      // 這裡顯示房間持有人
-                      subtitle: Text("OWNER: $ownerName"),
-                      leading: const Icon(
-                          CupertinoIcons.house_fill,
-                          color: CupertinoColors.activeBlue
-                      ),
-                      trailing: const CupertinoListTileChevron(),
-                      onTap: () {
-                        // 點擊後跳轉至掃描或偵察頁面
-                        Navigator.push(
-                          context,
-                          CupertinoPageRoute(
-                            builder: (context) => StartScout(roomName: roomName),
-                          ),
-                        );
-                      },
-                    );
-                  }).toList(),
+            return CustomScrollView(
+              physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+              slivers: [
+                CupertinoSliverRefreshControl(
+                  onRefresh: () async => setState(() {}),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.all(16),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                          (context, index) => _buildRoomCard(rooms[index]),
+                      childCount: rooms.length,
+                    ),
+                  ),
                 ),
               ],
             );
@@ -111,5 +78,83 @@ class _RoomListPageState extends State<RoomListPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildRoomCard(dynamic room) {
+    final String roomName = room['name'] ?? "未知房間";
+    final String ownerName = room['owner'] ?? "匿名";
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          CupertinoPageRoute(builder: (context) => StartScout(roomName: roomName)),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: Colors.grey.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 2)),
+          ],
+        ),
+        child: Row(
+          children: [
+            // --- 這裡更換為你的 assets 圖標 ---
+            Container(
+              width: 48,
+              height: 48,
+              padding: const EdgeInsets.all(8), // 縮減內邊距讓圖標大小適中
+              decoration: BoxDecoration(
+                color: _brandPurple.withOpacity(0.05), // 極淡紫色背景
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Image.asset(
+                'assets/images/icon.png',
+                fit: BoxFit.contain, // 確保圖標比例正確
+                // 如果你的 icon 是透明底純色，可以視情況加上 color: _brandPurple,
+              ),
+            ),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(roomName,
+                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87)
+                  ),
+                  const SizedBox(height: 4),
+                  Text("OWNER: $ownerName",
+                      style: const TextStyle(fontSize: 13, color: Colors.grey)
+                  ),
+                ],
+              ),
+            ),
+            const Icon(CupertinoIcons.chevron_right, size: 16, color: CupertinoColors.systemGrey4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorView(String msg) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(CupertinoIcons.wifi_exclamationmark, size: 50, color: Colors.redAccent),
+          const SizedBox(height: 10),
+          Text(msg, style: const TextStyle(color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyView() {
+    return const Center(child: Text("目前沒有任何房間", style: TextStyle(color: Colors.grey)));
   }
 }

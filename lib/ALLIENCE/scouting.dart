@@ -8,7 +8,6 @@ import 'dart:async';
 import 'api.dart';
 import 'endscout.dart';
 
-
 class ScoutingPage extends StatefulWidget {
   final String roomName;
   final String matchNumber;
@@ -30,19 +29,18 @@ class ScoutingPage extends StatefulWidget {
 }
 
 class _ScoutingPageState extends State<ScoutingPage> {
-  // --- 數據變數 ---
   int _autoBallCount = 0;
   int _teleopBallCount = 0;
   bool _isAutoHanging = false;
-  int _endgameLevel = 0; // 0=無, 1=L1, 2=L2, 3=L3
-
-  // 模式切換：true = Auto, false = Teleop
+  bool _isLeave = false;
+  int _endgameLevel = 0;
   bool _isAutoMode = true;
+
+  final Color purpleTheme = CupertinoColors.systemPurple;
 
   @override
   void initState() {
     super.initState();
-    // 強制橫向螢幕
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -51,12 +49,223 @@ class _ScoutingPageState extends State<ScoutingPage> {
 
   @override
   void dispose() {
-    // 離開時恢復直向
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
   }
 
-  /// 執行上傳並跳轉
+  // --- UI 組件：小計數器 (放入選單用) ---
+  Widget _buildMenuCounter() {
+    int currentCount = _isAutoMode ? _autoBallCount : _teleopBallCount;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: purpleTheme, width: 2),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text("進球: ", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            minSize: 35,
+            child: Icon(CupertinoIcons.minus_circle, color: purpleTheme, size: 28),
+            onPressed: () => setState(() => _isAutoMode
+                ? (_autoBallCount > 0 ? _autoBallCount-- : null)
+                : (_teleopBallCount > 0 ? _teleopBallCount-- : null)),
+          ),
+          SizedBox(
+            width: 30,
+            child: Center(child: Text("$currentCount", style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))),
+          ),
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            minSize: 35,
+            child: Icon(CupertinoIcons.plus_circle, color: purpleTheme, size: 28),
+            onPressed: () => setState(() => _isAutoMode ? _autoBallCount++ : _teleopBallCount++),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 彈出式 Endgame 選擇
+  void _showEndgamePicker() {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text("選擇 Endgame 等級"),
+        actions: List.generate(4, (i) => CupertinoActionSheetAction(
+          onPressed: () {
+            setState(() => _endgameLevel = i);
+            Navigator.pop(context);
+          },
+          child: Text(i == 0 ? "None (未攀爬)" : "Level $i"),
+        )),
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("取消"),
+        ),
+      ),
+    );
+  }
+
+  // 選單按鈕
+  Widget _buildMenuButton({required String label, required bool isActive, required VoidCallback onTap, IconData? icon}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 15),
+        decoration: BoxDecoration(
+          color: isActive ? purpleTheme : Colors.black.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: purpleTheme, width: 2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) Icon(icon, color: Colors.white, size: 16),
+            if (icon != null) const SizedBox(width: 8),
+            Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      backgroundColor: Colors.black,
+      child: Stack(
+        children: [
+          // 背景圖保持清晰
+          Positioned.fill(
+            child: Image.asset(
+                'assets/images/field2026.png',
+                fit: BoxFit.cover,
+                errorBuilder: (c, e, s) => Container(color: Colors.black)
+            ),
+          ),
+
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 頂部導航與資訊
+                  Row(
+                    children: [
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        child: Icon(CupertinoIcons.left_chevron, color: purpleTheme, size: 30),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+                        child: Text("M${widget.matchNumber} - T${widget.teamNumber}",
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      ),
+                      const Spacer(),
+                      Text(widget.position, style: TextStyle(color: widget.position.contains('Red') ? Colors.red : Colors.blue, fontWeight: FontWeight.bold, fontSize: 18)),
+                    ],
+                  ),
+
+                  const Spacer(),
+
+                  // --- 左下角集中控制面板 ---
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(15),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: purpleTheme, width: 2),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 1. 模式切換
+                            CupertinoSegmentedControl<bool>(
+                              groupValue: _isAutoMode,
+                              selectedColor: purpleTheme,
+                              borderColor: purpleTheme,
+                              onValueChanged: (v) => setState(() => _isAutoMode = v),
+                              children: const {
+                                true: Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Text("AUTO", style: TextStyle(fontSize: 12))),
+                                false: Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Text("TELEOP", style: TextStyle(fontSize: 12))),
+                              },
+                            ),
+                            const SizedBox(height: 15),
+
+                            // 2. 進球計數器 (現在整合進選單)
+                            _buildMenuCounter(),
+                            const SizedBox(height: 15),
+
+                            // 3. 模式特定功能
+                            if (_isAutoMode) ...[
+                              Row(
+                                children: [
+                                  _buildMenuButton(label: "Leave", isActive: _isLeave, onTap: () => setState(() => _isLeave = !_isLeave)),
+                                  const SizedBox(width: 10),
+                                  _buildMenuButton(label: "AutoHang", isActive: _isAutoHanging, onTap: () => setState(() => _isAutoHanging = !_isAutoHanging)),
+                                ],
+                              ),
+                            ] else ...[
+                              _buildMenuButton(
+                                label: _endgameLevel == 0 ? "Select Endgame" : "Endgame: L$_endgameLevel",
+                                isActive: _endgameLevel > 0,
+                                onTap: _showEndgamePicker,
+                                icon: CupertinoIcons.up_arrow,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+
+                      const Spacer(),
+
+                      // --- 右下角提交按鈕 ---
+                      CupertinoButton(
+                        color: purpleTheme,
+                        borderRadius: BorderRadius.circular(50),
+                        padding: const EdgeInsets.all(20),
+                        onPressed: _showConfirmDialog,
+                        child: const Icon(CupertinoIcons.checkmark, color: Colors.white, size: 30),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showConfirmDialog() {
+    int pts = (_autoBallCount * 4) + (_isLeave ? 3 : 0) + (_isAutoHanging ? 15 : 0) + (_teleopBallCount * 2) + (_endgameLevel * 10);
+    showCupertinoDialog(
+      context: context,
+      builder: (c) => CupertinoAlertDialog(
+        title: const Text("確認提交數據"),
+        content: Text("Auto: $_autoBallCount球 | Tele: $_teleopBallCount球\n預計得分：$pts pt"),
+        actions: [
+          CupertinoDialogAction(child: const Text("返回"), onPressed: () => Navigator.pop(c)),
+          CupertinoDialogAction(isDefaultAction: true, child: const Text("確定上傳"), onPressed: () { Navigator.pop(c); _handleUpload(); }),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleUpload() async {
     _showLoadingIndicator();
     try {
@@ -71,6 +280,7 @@ class _ScoutingPageState extends State<ScoutingPage> {
           'autoBallCount': _autoBallCount,
           'teleopBallCount': _teleopBallCount,
           'isAutoHanging': _isAutoHanging,
+          'isLeave': _isLeave,
           'endgameLevel': _endgameLevel,
           'user': widget.userName,
         }),
@@ -78,205 +288,20 @@ class _ScoutingPageState extends State<ScoutingPage> {
 
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
-        int reportIndex = result['index']; // 從後端取得該筆報告的索引
-
         if (mounted) {
-          Navigator.pop(context); // 關閉 Loading
-
-          // 跳轉至鑑定頁面 (RatingPage)
-          Navigator.push(
-            context,
-            CupertinoPageRoute(
-              builder: (context) => RatingPage(
-                roomName: widget.roomName,
-                reportIndex: reportIndex,
-                reportData: {
-                  'teamNumber': widget.teamNumber,
-                  'matchNumber': widget.matchNumber,
-                },
-              ),
-            ),
-          );
+          Navigator.pop(context);
+          Navigator.push(context, CupertinoPageRoute(builder: (context) => RatingPage(
+            roomName: widget.roomName,
+            reportIndex: result['index'],
+            reportData: {'teamNumber': widget.teamNumber, 'matchNumber': widget.matchNumber},
+          )));
         }
-      } else {
-        throw Exception("Server Error");
       }
     } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        _showErrorAlert("上傳失敗", "網路異常或伺服器未回應。");
-      }
+      if (mounted) { Navigator.pop(context); _showErrorAlert("上傳失敗", "網路異常"); }
     }
   }
 
-  void _submitReport() {
-    int totalPts = _autoBallCount + (_isAutoHanging ? 15 : 0) + _teleopBallCount + (_endgameLevel * 10);
-
-    showCupertinoDialog(
-      context: context,
-      builder: (c) => CupertinoAlertDialog(
-        title: const Text("確認提交"),
-        content: Text("預估得分：$totalPts pt\n提交後將進行駕駛鑑定。"),
-        actions: [
-          CupertinoDialogAction(child: const Text("取消"), onPressed: () => Navigator.pop(c)),
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            child: const Text("確定"),
-            onPressed: () {
-              Navigator.pop(c);
-              _handleUpload();
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showLoadingIndicator() {
-    showCupertinoDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CupertinoActivityIndicator(radius: 15)),
-    );
-  }
-
-  void _showErrorAlert(String title, String msg) {
-    showCupertinoDialog(
-      context: context,
-      builder: (ctx) => CupertinoAlertDialog(
-        title: Text(title),
-        content: Text(msg),
-        actions: [
-          CupertinoDialogAction(child: const Text("好"), onPressed: () => Navigator.pop(ctx)),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final Color activeColor = _isAutoMode ? CupertinoColors.systemYellow : CupertinoColors.systemBlue;
-
-    return CupertinoPageScaffold(
-      child: Stack(
-        children: [
-          // 背景與遮罩
-          Positioned.fill(child: Container(color: Colors.black)),
-          Positioned.fill(child: Opacity(opacity: 0.3, child: Image.asset('assets/images/field2026.png', fit: BoxFit.cover, errorBuilder: (c, e, s) => Container()))),
-
-          SafeArea(
-            child: Stack(
-              children: [
-                // 頂部資訊與切換
-                Positioned(
-                  top: 15, left: 20,
-                  child: Text("M${widget.matchNumber} - T${widget.teamNumber}", style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                ),
-                Positioned(
-                  top: 15, left: 0, right: 0,
-                  child: Center(
-                    child: CupertinoSegmentedControl<bool>(
-                      groupValue: _isAutoMode,
-                      borderColor: Colors.white54,
-                      selectedColor: activeColor,
-                      onValueChanged: (v) => setState(() => _isAutoMode = v),
-                      children: const {
-                        true: Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Text("AUTO")),
-                        false: Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Text("TELEOP")),
-                      },
-                    ),
-                  ),
-                ),
-
-                // 左下控制台
-                Positioned(
-                  bottom: 20, left: 20,
-                  child: Row(
-                    children: [
-                      _buildCounter(activeColor),
-                      const SizedBox(width: 15),
-                      _isAutoMode ? _buildHangToggle() : _buildEndgameGrid(),
-                    ],
-                  ),
-                ),
-
-                // 右下提交按鈕
-                Positioned(
-                  bottom: 20, right: 20,
-                  child: CupertinoButton.filled(
-                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                    onPressed: _submitReport,
-                    child: const Text("提交報告", style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCounter(Color color) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-          color: Colors.black87,
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: color)
-      ),
-      child: Row(
-        children: [
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            // 修正這裡：minus_circle -> minus_circled
-            child: const Icon(CupertinoIcons.minus_circled, color: Colors.red, size: 30),
-            onPressed: () => setState(() => _isAutoMode
-                ? (_autoBallCount > 0 ? _autoBallCount-- : null)
-                : (_teleopBallCount > 0 ? _teleopBallCount-- : null)),
-          ),
-          Text(
-              _isAutoMode ? "$_autoBallCount" : "$_teleopBallCount",
-              style: const TextStyle(color: Colors.white, fontSize: 35, fontWeight: FontWeight.bold)
-          ),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            // 修正這裡：add_circle -> add_circled
-            child: const Icon(CupertinoIcons.add_circled, color: Colors.green, size: 30),
-            onPressed: () => setState(() => _isAutoMode ? _autoBallCount++ : _teleopBallCount++),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHangToggle() {
-    return GestureDetector(
-      onTap: () => setState(() => _isAutoHanging = !_isAutoHanging),
-      child: Container(
-        padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(color: _isAutoHanging ? Colors.green : Colors.black87, borderRadius: BorderRadius.circular(15)),
-        child: const Text("AUTO 吊掛\n(+15pt)", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 12)),
-      ),
-    );
-  }
-
-  Widget _buildEndgameGrid() {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(15)),
-      child: Row(
-        children: List.generate(4, (i) => GestureDetector(
-          onTap: () => setState(() => _endgameLevel = i),
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: _endgameLevel == i ? Colors.blue : Colors.white10, borderRadius: BorderRadius.circular(8)),
-            child: Text(i == 0 ? "無" : "L$i", style: const TextStyle(color: Colors.white)),
-          ),
-        )),
-      ),
-    );
-  }
+  void _showLoadingIndicator() => showCupertinoDialog(context: context, builder: (c) => const Center(child: CupertinoActivityIndicator(radius: 15, color: Colors.white)));
+  void _showErrorAlert(String t, String m) => showCupertinoDialog(context: context, builder: (c) => CupertinoAlertDialog(title: Text(t), content: Text(m), actions: [CupertinoDialogAction(child: const Text("OK"), onPressed: () => Navigator.pop(c))]));
 }
-

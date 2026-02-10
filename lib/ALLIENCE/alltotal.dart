@@ -1,11 +1,10 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart'; // 僅保留用於顏色和基本的色彩常量
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-
 import 'api.dart';
 
 class AllTotalPage extends StatefulWidget {
@@ -20,6 +19,7 @@ class _AllTotalPageState extends State<AllTotalPage> {
   List<dynamic> _reports = [];
   bool _isLoading = true;
   final String serverIp = Api.serverIp;
+  final Color _brandPurple = Colors.purple;
 
   @override
   void initState() {
@@ -42,220 +42,167 @@ class _AllTotalPageState extends State<AllTotalPage> {
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      debugPrint("數據抓取失敗: $e");
     }
   }
 
-  // --- 輔助：鑑定等級文字轉換 ---
-  String _getRatingText(double avgRating) {
-    int r = avgRating.round();
-    switch (r) {
-      case 5: return '夯';
-      case 4: return '人上人';
-      case 3: return '普通';
-      case 2: return '人機';
-      case 1: return '拉完了';
-      default: return '無';
-    }
-  }
-
-  Color _getRatingColor(double avgRating) {
-    int r = avgRating.round();
-    if (r >= 5) return CupertinoColors.systemRed;
-    if (r >= 4) return CupertinoColors.activeOrange;
-    if (r >= 2) return CupertinoColors.systemGrey;
-    return CupertinoColors.black;
-  }
-
-  // --- 核心邏輯：計算各階段得分與彙整備註 ---
   List<Map<String, dynamic>> _processTeamData() {
     Map<String, Map<String, dynamic>> teamStats = {};
-
     for (var report in _reports) {
       String teamNum = report['teamNumber'].toString();
-
       int autoBalls = int.tryParse(report['autoBallCount'].toString()) ?? 0;
       int teleopBalls = int.tryParse(report['teleopBallCount'].toString()) ?? 0;
       bool isHanging = report['isAutoHanging'] == true || report['isAutoHanging'] == 1;
+      bool isLeave = report['isLeave'] == true || report['isLeave'] == 1;
       int endgameLevel = int.tryParse(report['endgameLevel'].toString()) ?? 0;
 
-      // 取得鑑定數據
-      int rating = int.tryParse(report['rating'].toString()) ?? 0;
-      String note = report['notes'] ?? "";
-
-      double autoScore = (autoBalls * 1.0) + (isHanging ? 15.0 : 0.0);
-      double teleopScore = (teleopBalls * 1.0) + (endgameLevel * 10.0);
-      double matchTotal = autoScore + teleopScore;
+      double autoScore = (autoBalls * 4.0) + (isHanging ? 15.0 : 0.0) + (isLeave ? 3.0 : 0.0);
+      double teleopScore = (teleopBalls * 2.0) + (endgameLevel * 10.0);
 
       if (!teamStats.containsKey(teamNum)) {
         teamStats[teamNum] = {
           'teamNumber': teamNum,
-          'sumAuto': 0.0,
-          'sumTeleop': 0.0,
           'sumTotal': 0.0,
-          'sumEndgame': 0,
+          'sumAutoBalls': 0,
+          'sumTeleopBalls': 0,
+          'hasLeaveEver': false,
+          'hasAutoHangEver': false,
+          'maxEndgameLevel': 0,
           'matchCount': 0,
-          'sumRating': 0,
-          'notesList': <String>[],
         };
       }
-
-      teamStats[teamNum]!['sumAuto'] += autoScore;
-      teamStats[teamNum]!['sumTeleop'] += teleopScore;
-      teamStats[teamNum]!['sumTotal'] += matchTotal;
-      teamStats[teamNum]!['sumEndgame'] += endgameLevel;
+      teamStats[teamNum]!['sumTotal'] += (autoScore + teleopScore);
+      teamStats[teamNum]!['sumAutoBalls'] += autoBalls;
+      teamStats[teamNum]!['sumTeleopBalls'] += teleopBalls;
       teamStats[teamNum]!['matchCount'] += 1;
-
-      if (rating > 0) teamStats[teamNum]!['sumRating'] += rating;
-      if (note.isNotEmpty) teamStats[teamNum]!['notesList'].add(note);
+      if (isLeave) teamStats[teamNum]!['hasLeaveEver'] = true;
+      if (isHanging) teamStats[teamNum]!['hasAutoHangEver'] = true;
+      if (endgameLevel > teamStats[teamNum]!['maxEndgameLevel']) {
+        teamStats[teamNum]!['maxEndgameLevel'] = endgameLevel;
+      }
     }
-
     return teamStats.values.map((team) {
-      int count = team['matchCount'];
-      team['avgAuto'] = team['sumAuto'] / count;
-      team['avgTeleop'] = team['sumTeleop'] / count;
-      team['avgTotal'] = team['sumTotal'] / count;
-      team['avgRating'] = team['sumRating'] / count;
-      team['avgEndgame'] = team['sumEndgame'] / count;
+      team['avgTotal'] = team['sumTotal'] / team['matchCount'];
       return team;
     }).toList()..sort((a, b) => b['avgTotal'].compareTo(a['avgTotal']));
   }
 
-  // --- CSV 匯出：移除掛鉤率 ---
   Future<void> _exportExcel(List<Map<String, dynamic>> data) async {
-    if (data.isEmpty) return;
-
-    // 表頭移除 Hang Rate
-    String csv = "Team,Matches,Avg Total,Avg Auto,Avg Teleop,Avg Endgame,Rating,評價\n";
-
+    String csv = "Team,Matches,Avg Total,Total Auto Balls,Total Teleop Balls,Has Leave,Auto Hang,Max Endgame Level\n";
     for (var team in data) {
-      String combinedNotes = (team['notesList'] as List).join(" | ").replaceAll(",", " ");
-
       csv += "${team['teamNumber']},"
           "${team['matchCount']},"
           "${team['avgTotal'].toStringAsFixed(2)},"
-          "${team['avgAuto'].toStringAsFixed(2)},"
-          "${team['avgTeleop'].toStringAsFixed(2)},"
-          "${team['avgEndgame'].toStringAsFixed(2)},"
-          "${_getRatingText(team['avgRating'])},"
-          "\"$combinedNotes\"\n";
+          "${team['sumAutoBalls']},"
+          "${team['sumTeleopBalls']},"
+          "${team['hasLeaveEver'] ? "YES" : "NO"},"
+          "${team['hasAutoHangEver'] ? "YES" : "NO"},"
+          "L${team['maxEndgameLevel']}\n";
     }
-
-    try {
-      final directory = await getTemporaryDirectory();
-      final file = File('${directory.path}/Analysis_${widget.roomName}.csv');
-      await file.writeAsBytes([0xEF, 0xBB, 0xBF, ...utf8.encode(csv)]);
-      await Share.shareXFiles([XFile(file.path)], text: 'FRC Scouting Data Export');
-    } catch (e) {
-      debugPrint("CSV 匯出失敗: $e");
-    }
+    final directory = await getTemporaryDirectory();
+    final file = File('${directory.path}/Analysis_${widget.roomName}.csv');
+    await file.writeAsBytes([0xEF, 0xBB, 0xBF, ...utf8.encode(csv)]);
+    await Share.shareXFiles([XFile(file.path)], text: '數據分析導出');
   }
 
   @override
   Widget build(BuildContext context) {
     final groupedData = _processTeamData();
-
+    // 👈 改用 CupertinoPageScaffold
     return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.systemGroupedBackground,
+      backgroundColor: const Color(0xFFF8F9FA),
       navigationBar: CupertinoNavigationBar(
-        middle: Text("${widget.roomName} 排行榜"),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CupertinoButton(padding: EdgeInsets.zero, child: const Icon(CupertinoIcons.share), onPressed: () => _exportExcel(groupedData)),
-            CupertinoButton(padding: EdgeInsets.zero, child: const Icon(CupertinoIcons.refresh), onPressed: _fetchTotalData),
-          ],
+        backgroundColor: Colors.white.withOpacity(0.9),
+        middle: Text("${widget.roomName} 排行榜", style: const TextStyle(fontWeight: FontWeight.bold)),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          child: const Icon(CupertinoIcons.share, size: 22),
+          onPressed: () => _exportExcel(groupedData),
         ),
       ),
       child: SafeArea(
         child: _isLoading
             ? const Center(child: CupertinoActivityIndicator())
             : ListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
           itemCount: groupedData.length,
           itemBuilder: (context, index) {
             final team = groupedData[index];
-            final avgR = team['avgRating'] as double;
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(15),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))]
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Text("Team ${team['teamNumber']}", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                          const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: _getRatingColor(avgR),
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                            child: Text(
-                              _getRatingText(avgR),
-                              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text("${team['avgTotal'].toStringAsFixed(1)} pt",
-                              style: const TextStyle(fontSize: 24, color: CupertinoColors.activeBlue, fontWeight: FontWeight.bold)),
-                          const Text("平均總分", style: TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 25),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildStatColumn("AUTO 分", team['avgAuto'], CupertinoColors.systemYellow),
-                      _buildStatColumn("TELEOP 分", team['avgTeleop'], CupertinoColors.systemBlue),
-                      _buildStatColumn("Ranking", team['matchCount'].toDouble(), CupertinoColors.systemGrey, isInt: true),
-                    ],
-                  ),
-                  if ((team['notesList'] as List).isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        "最新筆記: ${team['notesList'].last}",
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey, fontStyle: FontStyle.italic),
-                      ),
-                    )
-                  ]
-                ],
-              ),
-            );
+            return _buildTeamCard(team);
           },
         ),
       ),
     );
   }
 
-  Widget _buildStatColumn(String label, double value, Color color, {bool isInt = false}) {
+  Widget _buildTeamCard(Map<String, dynamic> team) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
+        ],
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(team['teamNumber'], style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text("${team['avgTotal'].toStringAsFixed(1)}",
+                      style: TextStyle(fontSize: 32, color: _brandPurple, fontWeight: FontWeight.w900, height: 1)),
+                  const Text("AVG POINTS", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey)),
+                ],
+              ),
+            ],
+          ),
+          const Padding(padding: EdgeInsets.symmetric(vertical: 15), child: Divider(height: 1, color: Color(0xFFEEEEEE))),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatItem("Matches", "${team['matchCount']}", Colors.blueGrey),
+              _buildStatItem("Auto Balls", "${team['sumAutoBalls']}", Colors.orange),
+              _buildStatItem("Tele Balls", "${team['sumTeleopBalls']}", Colors.blue),
+            ],
+          ),
+          const SizedBox(height: 15),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatusTag(team['hasLeaveEver'], "Leave"),
+              _buildStatusTag(team['hasAutoHangEver'], "AutoHang"),
+              _buildStatItem("Max End", "L${team['maxEndgameLevel']}", Colors.purple),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, Color color) {
     return Column(
       children: [
-        Text(
-          isInt ? value.toInt().toString() : value.toStringAsFixed(1),
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color),
-        ),
-        Text(label, style: const TextStyle(fontSize: 11, color: CupertinoColors.systemGrey, fontWeight: FontWeight.bold)),
+        Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: color)),
+        Text(label.toUpperCase(), style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.grey)),
       ],
+    );
+  }
+
+  Widget _buildStatusTag(bool isActive, String label) {
+    Color color = isActive ? Colors.green : Colors.grey.shade300;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isActive ? Colors.green : Colors.grey)),
     );
   }
 }

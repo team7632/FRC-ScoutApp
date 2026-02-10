@@ -41,13 +41,13 @@ class _AllConfig2State extends State<AllConfig2> {
     }
   }
 
-  // 修改數據的對話框：支援 Auto, Teleop, 吊掛, 與 Endgame Level
   void _editReport(int index) {
     final report = _reports[index];
 
     TextEditingController autoController = TextEditingController(text: report['autoBallCount'].toString());
     TextEditingController teleController = TextEditingController(text: report['teleopBallCount'].toString());
     bool tempIsHanging = report['isAutoHanging'] == true || report['isAutoHanging'] == 1;
+    bool tempIsLeave = report['isLeave'] == true || report['isLeave'] == 1; // 👈 [新增] 讀取是否離開
     int tempEndgame = int.tryParse(report['endgameLevel'].toString()) ?? 0;
 
     showCupertinoDialog(
@@ -63,6 +63,19 @@ class _AllConfig2State extends State<AllConfig2> {
                 const SizedBox(height: 10),
                 _buildEditField("TELEOP 進球", teleController),
                 const SizedBox(height: 15),
+                // 離開起始區切換
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("離開起始區 ()", style: TextStyle(fontSize: 14)),
+                    CupertinoSwitch(
+                      activeColor: CupertinoColors.activeOrange,
+                      value: tempIsLeave, // 👈 [新增]
+                      onChanged: (val) => setDialogState(() => tempIsLeave = val),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
                 // 吊掛切換
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -75,7 +88,6 @@ class _AllConfig2State extends State<AllConfig2> {
                   ],
                 ),
                 const Divider(height: 20),
-                // Endgame 等級選擇
                 const Text("ENDGAME LEVEL", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CupertinoColors.systemGrey)),
                 const SizedBox(height: 10),
                 CupertinoSlidingSegmentedControl<int>(
@@ -103,8 +115,7 @@ class _AllConfig2State extends State<AllConfig2> {
                 Navigator.pop(c);
 
                 try {
-                  // ✅ 修正：直接使用 Api.serverIp，不要手動拼湊 http 或 :3000
-                  final response = await http.post(
+                  await http.post(
                     Uri.parse('${Api.serverIp}/v1/rooms/update-report'),
                     headers: {'Content-Type': 'application/json'},
                     body: jsonEncode({
@@ -113,16 +124,11 @@ class _AllConfig2State extends State<AllConfig2> {
                       'newAutoCount': newAuto,
                       'newTeleopCount': newTele,
                       'newIsHanging': tempIsHanging,
+                      'newIsLeave': tempIsLeave, // 👈 [新增] 傳送到後端
                       'newEndgameLevel': tempEndgame
                     }),
                   );
-
-                  if (response.statusCode == 200) {
-                    // ✅ 這裡會觸發 _fetchReports() 重新從伺服器抓資料並 setState
-                    _fetchReports();
-                  } else {
-                    debugPrint("❌ 伺服器回傳錯誤: ${response.statusCode}");
-                  }
+                  _fetchReports();
                 } catch (e) {
                   debugPrint("❌ 更新失敗: $e");
                 }
@@ -154,7 +160,7 @@ class _AllConfig2State extends State<AllConfig2> {
     return CupertinoPageScaffold(
       backgroundColor: CupertinoColors.systemGroupedBackground,
       navigationBar: CupertinoNavigationBar(
-        middle: const Text("Config panel"),
+        middle: const Text("數據修正面板"),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: _fetchReports,
@@ -170,12 +176,14 @@ class _AllConfig2State extends State<AllConfig2> {
           itemBuilder: (context, index) {
             final item = _reports[index];
             bool isHanging = item['isAutoHanging'] == true || item['isAutoHanging'] == 1;
+            bool isLeave = item['isLeave'] == true || item['isLeave'] == 1; // 👈 [新增]
             int egLevel = int.tryParse(item['endgameLevel'].toString()) ?? 0;
 
-            // 計算顯示總分
-            int total = (int.tryParse(item['autoBallCount'].toString()) ?? 0) +
+            // 計算顯示總分 (包含 Leave 3pt)
+            int total = (int.tryParse(item['autoBallCount'].toString()) ?? 0) * 4 + // 假設 Auto 球 4 分
+                (isLeave ? 0 : 0) + // 👈 [新增] 分數計算
                 (isHanging ? 15 : 0) +
-                (int.tryParse(item['teleopBallCount'].toString()) ?? 0) +
+                (int.tryParse(item['teleopBallCount'].toString()) ?? 0) * 2 + // 假設 Teleop 球 2 分
                 (egLevel * 10);
 
             return Container(
@@ -194,12 +202,13 @@ class _AllConfig2State extends State<AllConfig2> {
                   children: [
                     Text("偵查員: ${item['user']} (${item['position']})"),
                     const SizedBox(height: 6),
-                    Wrap( // 使用 Wrap 防止標籤過多時溢出
+                    Wrap(
                       spacing: 5,
                       runSpacing: 5,
                       children: [
                         _tag("Auto: ${item['autoBallCount']}", CupertinoColors.systemYellow),
                         _tag("Tele: ${item['teleopBallCount']}", CupertinoColors.systemBlue),
+                        if (isLeave) _tag("已離開起始區", CupertinoColors.activeOrange), // 👈 [新增] 標籤
                         if (isHanging) _tag("Auto 吊掛", CupertinoColors.systemGreen),
                         if (egLevel > 0) _tag("Endgame L$egLevel", CupertinoColors.systemPurple),
                       ],

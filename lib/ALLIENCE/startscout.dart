@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// 導入相關頁面
 import 'AdminConfig.dart';
 import 'allconfig2.dart';
 import 'api.dart';
@@ -21,23 +20,25 @@ class StartScout extends StatefulWidget {
 
 class _StartScoutState extends State<StartScout> {
   final TextEditingController _teamController = TextEditingController();
-  int _selectedAlliance = 0; // 0: Red, 1: Blue
+  int _selectedAlliance = 0;
   String _assignedPosition = "正在檢查分配...";
   String _matchNumber = "-";
-  List<String> _activeUsers = [];
+  List<dynamic> _activeUsers = [];
   bool _isChecking = true;
   bool _isAdmin = false;
-  bool _hasRecorded = false; // [新增] 當前場次是否已上傳過報告
+  bool _hasRecorded = false;
+  bool _isServerDown = false; // 新增：判斷伺服器是否斷線
   String? _currentUserName;
   Timer? _refreshTimer;
 
+  final Color primaryPurple = CupertinoColors.systemPurple;
   final String serverIp = Api.serverIp;
 
   @override
   void initState() {
     super.initState();
     _initData();
-    // 啟動定時刷新：每 5 秒同步一次最新場次、隊號與上傳狀態
+    // 每 5 秒自動同步一次
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (mounted) _checkAssignment();
     });
@@ -53,22 +54,27 @@ class _StartScoutState extends State<StartScout> {
   Future<void> _initData() async {
     final prefs = await SharedPreferences.getInstance();
     _currentUserName = prefs.getString('username');
+    String? myPhotoUrl = prefs.getString('userPhotoUrl');
 
-    // 1. 進入房間報到
+    print("【Debug】目前使用者: $_currentUserName, 頭像網址: $myPhotoUrl");
+
     try {
+      // 報到並同步頭像
       await http.post(
         Uri.parse('$serverIp/v1/rooms/join'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'roomName': widget.roomName, 'user': _currentUserName}),
-      );
+        body: jsonEncode({
+          'roomName': widget.roomName,
+          'user': _currentUserName,
+          'photoUrl': myPhotoUrl
+        }),
+      ).timeout(const Duration(seconds: 5));
     } catch (e) {
       debugPrint("報到連線失敗: $e");
     }
 
-    // 2. 檢查權限與獲取初始分配
     await _checkRoomAuthority();
     await _checkAssignment();
-
     if (mounted) setState(() => _isChecking = false);
   }
 
@@ -77,7 +83,10 @@ class _StartScoutState extends State<StartScout> {
       final response = await http.get(Uri.parse('$serverIp/v1/rooms'));
       if (response.statusCode == 200) {
         final List rooms = jsonDecode(response.body);
-        final currentRoom = rooms.firstWhere((r) => r['name'] == widget.roomName, orElse: () => null);
+        final currentRoom = rooms.firstWhere(
+                (r) => r['name'] == widget.roomName,
+            orElse: () => null
+        );
         if (currentRoom != null && currentRoom['owner'] == _currentUserName) {
           setState(() => _isAdmin = true);
         }
@@ -87,16 +96,14 @@ class _StartScoutState extends State<StartScout> {
     }
   }
 
-  // --- 核心同步邏輯：檢查場次、隊伍、以及「是否重複錄入」 ---
   Future<void> _checkAssignment() async {
     try {
       final assignUrl = '$serverIp/v1/rooms/assignments?roomName=${widget.roomName}';
       final reportUrl = '$serverIp/v1/rooms/all-reports?roomName=${widget.roomName}';
 
-      // 同時檢查分配與所有報告
       final responses = await Future.wait([
-        http.get(Uri.parse(assignUrl)),
-        http.get(Uri.parse(reportUrl)),
+        http.get(Uri.parse(assignUrl)).timeout(const Duration(seconds: 3)),
+        http.get(Uri.parse(reportUrl)).timeout(const Duration(seconds: 3)),
       ]);
 
       if (responses[0].statusCode == 200 && responses[1].statusCode == 200) {
@@ -112,58 +119,133 @@ class _StartScoutState extends State<StartScout> {
           if (user == _currentUserName) myPos = pos;
         });
 
-        // [關鍵邏輯]：檢查該房間是否有「這場次 + 這位置」的紀錄
         bool recorded = reports.any((r) =>
-        r['matchNumber'].toString() == remoteMatch &&
-            r['position'] == myPos);
+        r['matchNumber'].toString() == remoteMatch && r['position'] == myPos);
 
         if (mounted) {
           setState(() {
             _assignedPosition = myPos ?? "尚未分配位置";
             _matchNumber = remoteMatch;
-            _activeUsers = List<String>.from(data['activeUsers'] ?? []);
+            _activeUsers = data['activeUsers'] ?? [];
             _hasRecorded = recorded;
+            _isServerDown = false;
 
             if (myPos != null) {
               _teamController.text = teamsMap[myPos]?.toString() ?? "";
-            } else {
-              _teamController.text = "";
-            }
-
-            if (_assignedPosition.startsWith('Red')) {
-              _selectedAlliance = 0;
-            } else if (_assignedPosition.startsWith('Blue')) {
-              _selectedAlliance = 1;
+              _selectedAlliance = _assignedPosition.startsWith('Red') ? 0 : 1;
             }
           });
         }
       }
     } catch (e) {
+      if (mounted) setState(() => _isServerDown = true);
       debugPrint("資料同步錯誤: $e");
     }
   }
 
-  void _showActiveUsers() {
-    showCupertinoModalPopup(
+  void _showInstruction(String reason) {
+    showCupertinoDialog(
       context: context,
-      builder: (context) => CupertinoActionSheet(
-        title: Text("${widget.roomName} 成員列表"),
-        message: Text(_activeUsers.isNotEmpty ? _activeUsers.join("、") : "尚無其他成員"),
+      builder: (c) => CupertinoAlertDialog(
+        title: const Text("無法開始"),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8.0),
+          child: Text(reason),
+        ),
         actions: [
-          CupertinoActionSheetAction(onPressed: () => Navigator.pop(context), child: const Text("關閉")),
+          CupertinoDialogAction(child: const Text("了解"), onPressed: () => Navigator.pop(c)),
         ],
+      ),
+    );
+  }
+
+  void _showActiveUsers() {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: "Dismiss",
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, anim1, anim2) => Container(),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return SlideTransition(
+          position: Tween<Offset>(begin: const Offset(-1, 0), end: Offset.zero)
+              .animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.75,
+              height: double.infinity,
+              decoration: BoxDecoration(
+                color: CupertinoColors.systemBackground.resolveFrom(context),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
+              ),
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Row(
+                        children: [
+                          Icon(CupertinoIcons.person_2_fill, color: primaryPurple),
+                          const SizedBox(width: 10),
+                          Text("房間成員 (${_activeUsers.length})", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryPurple)),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: _activeUsers.length,
+                        itemBuilder: (context, index) {
+                          final user = _activeUsers[index];
+                          final String name = user['name'] ?? "Unknown";
+                          final String? photoUrl = user['photoUrl'];
+
+                          return CupertinoListTile(
+                            leading: ClipOval(
+                              child: (photoUrl != null && photoUrl.isNotEmpty && photoUrl.startsWith('http'))
+                                  ? Image.network(
+                                photoUrl,
+                                width: 36, height: 36, fit: BoxFit.cover,
+                                errorBuilder: (c, e, s) => _buildDefaultAvatar(name),
+                              )
+                                  : _buildDefaultAvatar(name),
+                            ),
+                            title: Text(name),
+                            subtitle: name == _currentUserName ? const Text("（You）", style: TextStyle(fontSize: 12)) : null,
+                          );
+                        },
+                      ),
+                    ),
+                    CupertinoButton(child: const Text("關閉"), onPressed: () => Navigator.pop(context)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDefaultAvatar(String name) {
+    return Container(
+      width: 36, height: 36,
+      color: primaryPurple.withOpacity(0.2),
+      child: Center(
+        child: Text(
+            name.isNotEmpty ? name.substring(0, 1).toUpperCase() : "?",
+            style: TextStyle(color: primaryPurple, fontWeight: FontWeight.bold)
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    Color themeColor = _selectedAlliance == 0 ? CupertinoColors.systemRed : CupertinoColors.systemBlue;
-
-    // 狀態判定邏輯
+    Color allianceColor = _selectedAlliance == 0 ? CupertinoColors.systemRed : CupertinoColors.systemBlue;
     bool isTeamEmpty = _teamController.text.isEmpty || _teamController.text == "---" || _teamController.text == "";
-    // 必須有隊號、有位置、且這場還沒錄過，才能開始
-    bool canStart = !isTeamEmpty && !_assignedPosition.contains("尚未") && !_hasRecorded;
+    bool canStart = !isTeamEmpty && !_assignedPosition.contains("尚未") && !_hasRecorded && !_isServerDown;
 
     return CupertinoPageScaffold(
       backgroundColor: CupertinoColors.systemGroupedBackground,
@@ -171,15 +253,22 @@ class _StartScoutState extends State<StartScout> {
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: _showActiveUsers,
-          child: const Icon(CupertinoIcons.person_2_fill, size: 24),
+          child: Icon(CupertinoIcons.person_2_fill, color: primaryPurple),
         ),
-        middle: Text("Match $_matchNumber"),
+        middle: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Match $_matchNumber"),
+            if (_isChecking) const Padding(
+              padding: EdgeInsets.only(left: 8.0),
+              child: CupertinoActivityIndicator(radius: 7),
+            ),
+          ],
+        ),
         trailing: _isAdmin ? CupertinoButton(
           padding: EdgeInsets.zero,
-          child: const Icon(CupertinoIcons.settings),
-          onPressed: () {
-            Navigator.push(context, CupertinoPageRoute(builder: (c) => AdminConfig(roomName: widget.roomName))).then((_) => _checkAssignment());
-          },
+          child: Icon(CupertinoIcons.settings, color: primaryPurple),
+          onPressed: () => Navigator.push(context, CupertinoPageRoute(builder: (c) => AdminConfig(roomName: widget.roomName))),
         ) : null,
       ),
       child: SafeArea(
@@ -187,112 +276,78 @@ class _StartScoutState extends State<StartScout> {
           padding: const EdgeInsets.all(24.0),
           child: Column(
             children: [
-              // 1. 狀態顯示卡片
+              if (_isServerDown)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: CupertinoColors.systemRed.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                    child: const Row(
+                      children: [
+                        Icon(CupertinoIcons.wifi_slash, color: CupertinoColors.systemRed, size: 20),
+                        SizedBox(width: 10),
+                        Text("伺服器連線中斷，請檢查網路", style: TextStyle(color: CupertinoColors.systemRed, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // 分配位置卡片
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: themeColor.withOpacity(0.1),
+                  color: allianceColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: themeColor.withOpacity(0.3)),
+                  border: Border.all(color: allianceColor.withOpacity(0.3)),
                 ),
                 child: Column(
                   children: [
-                    Text("分配位置", style: TextStyle(color: themeColor.withOpacity(0.8), fontSize: 14)),
+                    Text("分配位置", style: TextStyle(color: allianceColor.withOpacity(0.8), fontSize: 14)),
                     const SizedBox(height: 8),
-                    Text(_assignedPosition, style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: themeColor)),
+                    Text(_assignedPosition, style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: allianceColor)),
                   ],
                 ),
               ),
-
               const SizedBox(height: 30),
-              const Text("本次偵查隊伍", style: TextStyle(color: CupertinoColors.systemGrey, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
 
-              // 2. 隊號顯示框
+              // 隊號顯示
               CupertinoTextField(
-                controller: isTeamEmpty ? TextEditingController(text: "---") : _teamController,
+                controller: TextEditingController(text: isTeamEmpty ? "---" : _teamController.text),
                 readOnly: true,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                    color: isTeamEmpty ? CupertinoColors.systemGrey4 : themeColor
-                ),
-                decoration: BoxDecoration(
-                  color: CupertinoColors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: CupertinoColors.systemGrey4),
-                ),
+                style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: isTeamEmpty ? CupertinoColors.systemGrey4 : allianceColor),
+                decoration: BoxDecoration(color: CupertinoColors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: CupertinoColors.systemGrey4)),
                 padding: const EdgeInsets.symmetric(vertical: 20),
               ),
-
               const SizedBox(height: 40),
 
-              // 3. 主要按鈕：加入重複錄入檢查
-              SizedBox(
-                width: double.infinity,
-                child: CupertinoButton.filled(
-                  borderRadius: BorderRadius.circular(12),
-                  onPressed: canStart ? () => _goScouting() : null,
-                  child: Text(
-                    _hasRecorded
-                        ? "本場數據已完成"
-                        : (canStart ? "開始錄入數據" : (isTeamEmpty ? "等待管理員分配..." : "尚未獲取位置")),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-
-              // 4. 提示文字
-              if (_hasRecorded)
-                const Padding(
-                  padding: EdgeInsets.only(top: 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoColors.systemGreen, size: 18),
-                      SizedBox(width: 6),
-                      Text("You've already recorded this one.！", style: TextStyle(color: CupertinoColors.systemGreen, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-
-              if (_isAdmin && isTeamEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 10),
-                  child: Text("⚠️ 您尚未設定本場隊伍，隊員目前無法開始",
-                      style: TextStyle(color: CupertinoColors.destructiveRed, fontSize: 13, fontWeight: FontWeight.bold)),
-                ),
-
-              const SizedBox(height: 25),
-
-              // 5. 查看/修正按鈕
+              // 開始按鈕
               SizedBox(
                 width: double.infinity,
                 child: CupertinoButton(
-                  color: CupertinoColors.systemPurple.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  onPressed: () => Navigator.push(
-                    context,
-                    CupertinoPageRoute(builder: (context) => AllConfig2(roomName: widget.roomName)),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(CupertinoIcons.doc_text_search, color: CupertinoColors.systemPurple),
-                      SizedBox(width: 8),
-                      Text("查看 / 修正全體紀錄", style: TextStyle(color: CupertinoColors.systemPurple, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
+                  color: primaryPurple,
+                  disabledColor: CupertinoColors.systemGrey4,
+                  onPressed: canStart ? () => _goScouting() : () {
+                    if (_isServerDown) _showInstruction("伺服器連線失敗，請檢查網路 IP 設定。");
+                    else if (_assignedPosition.contains("尚未")) _showInstruction("管理員尚未為您分配位置（Red/Blue）。");
+                    else if (isTeamEmpty) _showInstruction("此場次尚未設定編號。");
+                    else if (_hasRecorded) _showInstruction("您已經完成此場次的數據錄入，不可重複提交。");
+                  },
+                  child: Text(_hasRecorded ? "本場數據已完成" : "開始錄入數據",
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
               ),
-
               const SizedBox(height: 20),
-              Text("目前房間人數: ${_activeUsers.length}", style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 13)),
-              if (_isChecking) const Padding(
-                padding: EdgeInsets.only(top: 10),
-                child: CupertinoActivityIndicator(),
+
+              // 修正按鈕
+              SizedBox(
+                width: double.infinity,
+                child: CupertinoButton(
+                  color: primaryPurple.withOpacity(0.1),
+                  onPressed: () => Navigator.push(context, CupertinoPageRoute(builder: (c) => AllConfig2(roomName: widget.roomName))),
+                  child: Text("查看 / 修正全體紀錄", style: TextStyle(color: primaryPurple, fontWeight: FontWeight.bold)),
+                ),
               ),
             ],
           ),
@@ -311,21 +366,13 @@ class _StartScoutState extends State<StartScout> {
           CupertinoDialogAction(child: const Text("取消"), onPressed: () => Navigator.pop(c)),
           CupertinoDialogAction(
             isDefaultAction: true,
-            child: const Text("開始"),
+            child: Text("開始", style: TextStyle(color: primaryPurple)),
             onPressed: () {
               Navigator.pop(c);
-              Navigator.push(
-                context,
-                CupertinoPageRoute(
-                  builder: (context) => ScoutingPage(
-                    roomName: widget.roomName,
-                    matchNumber: _matchNumber,
-                    teamNumber: _teamController.text,
-                    position: _assignedPosition,
-                    userName: _currentUserName ?? "Unknown",
-                  ),
-                ),
-              );
+              Navigator.push(context, CupertinoPageRoute(builder: (context) => ScoutingPage(
+                roomName: widget.roomName, matchNumber: _matchNumber, teamNumber: _teamController.text,
+                position: _assignedPosition, userName: _currentUserName ?? "Unknown",
+              )));
             },
           ),
         ],
