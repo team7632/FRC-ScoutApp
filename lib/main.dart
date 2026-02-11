@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
-// 請確保路徑與你的專案結構一致
+// Ensure these paths match your project structure
 import 'package:flutter_application_1/ALLIENCE/MyHomePage.dart';
 import 'package:flutter_application_1/ALLIENCE/RoomListPage.dart';
 import 'ALLIENCE/api.dart';
@@ -32,7 +32,7 @@ Future<void> loadSavedConfig() async {
       Api.serverIp = savedIp;
     }
   } catch (e) {
-    print("讀取設定時出錯: $e");
+    print("Error loading configuration: $e");
   }
 }
 
@@ -47,13 +47,13 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        // 使用紫色作為種子色，系統會自動生成輕盈的色調
+        // Using Purple as the seed color for a modern, light palette
         colorSchemeSeed: const Color(0xFF673AB7),
         brightness: Brightness.light,
 
-        // 全域卡片樣式優化
+        // Global Card optimization
         cardTheme: CardThemeData(
-          elevation: 0, // 移除沉重陰影
+          elevation: 0, // Remove heavy shadows
           color: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
@@ -61,7 +61,7 @@ class MyApp extends StatelessWidget {
           ),
         ),
 
-        // 全域按鈕樣式優化（不加粗）
+        // Global Button style (Cleaner weight)
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             elevation: 0,
@@ -70,13 +70,13 @@ class MyApp extends StatelessWidget {
           ),
         ),
 
-        // 全域 AppBar 樣式
+        // Global AppBar style
         appBarTheme: const AppBarTheme(
           centerTitle: true,
           titleTextStyle: TextStyle(
             color: Colors.black87,
             fontSize: 18,
-            fontWeight: FontWeight.w400, // 移除粗體
+            fontWeight: FontWeight.w400,
           ),
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -139,7 +139,7 @@ class _RegisterPageState extends State<RegisterPage> {
         );
       }
     } catch (error) {
-      _showError("登入過程發生錯誤");
+      _showError("An error occurred during sign-in");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -150,12 +150,12 @@ class _RegisterPageState extends State<RegisterPage> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("提示", style: TextStyle(fontWeight: FontWeight.w400)),
+        title: const Text("Notice", style: TextStyle(fontWeight: FontWeight.w400)),
         content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("確定"),
+            child: const Text("OK"),
           )
         ],
       ),
@@ -172,7 +172,7 @@ class _RegisterPageState extends State<RegisterPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Logo 區域
+                // Logo Section
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -194,7 +194,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 const SizedBox(height: 48),
 
-                // 標題區域 - 使用中度字重而非粗體
+                // Title Section
                 const Text(
                   "FRC7632 Scout",
                   style: TextStyle(
@@ -206,7 +206,8 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  "請先完成 Google 驗證以開始使用",
+                  "Please complete Google verification to begin",
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w300,
@@ -215,7 +216,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 const SizedBox(height: 72),
 
-                // 登入按鈕 - 圓潤簡約風格
+                // Login Button
                 SizedBox(
                   width: double.infinity,
                   height: 54,
@@ -224,7 +225,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       : ElevatedButton.icon(
                     onPressed: _handleGoogleSignIn,
                     icon: const Icon(Icons.mail_outline, size: 20),
-                    label: const Text("使用 Google 帳戶登入"),
+                    label: const Text("Sign in with Google"),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.black87,
@@ -235,7 +236,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 const SizedBox(height: 48),
 
-                // 底部版本號
+                // Footer Version
                 const Text(
                   "Version 2.0.0",
                   style: TextStyle(

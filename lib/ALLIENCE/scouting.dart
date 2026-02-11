@@ -1,26 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:async';
-
 import 'api.dart';
 import 'endscout.dart';
 
+
 class ScoutingPage extends StatefulWidget {
   final String roomName;
+  final String userName;
+  final String position;
   final String matchNumber;
   final String teamNumber;
-  final String position;
-  final String userName;
 
   const ScoutingPage({
     super.key,
     required this.roomName,
+    required this.userName,
+    required this.position,
     required this.matchNumber,
     required this.teamNumber,
-    required this.position,
-    required this.userName,
   });
 
   @override
@@ -28,327 +26,366 @@ class ScoutingPage extends StatefulWidget {
 }
 
 class _ScoutingPageState extends State<ScoutingPage> {
-  int _autoBallCount = 0;
-  int _teleopBallCount = 0;
-  bool _isAutoHanging = false;
-  bool _isLeave = false;
+  int _autoBalls = 0,
+      _teleBalls = 0;
+  bool _isLeave = false,
+      _isHanging = false;
   int _endgameLevel = 0;
-  bool _isAutoMode = true;
+  int _autoBump = 0,
+      _autoTrench = 0,
+      _autoDepot = 0,
+      _autoOutpost = 0;
+  int _teleBump = 0,
+      _teleTrench = 0,
+      _teleDepot = 0,
+      _teleOutpost = 0;
 
-  final Color purpleTheme = const Color(0xFFD0BCFF); // Material 3 Purple
+  final List<Offset?> _points = [];
+  final GlobalKey _canvasKey = GlobalKey();
+  final Color primaryPurple = const Color(0xFF673AB7);
 
-  @override
-  void initState() {
-    super.initState();
-    // Force Landscape orientation for scouting
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-  }
+  Future<void> _submitReport() async {
+    final RenderBox? renderBox = _canvasKey.currentContext
+        ?.findRenderObject() as RenderBox?;
+    final Size size = renderBox?.size ?? const Size(1, 1);
 
-  @override
-  void dispose() {
-    // Restore Portrait orientation when leaving
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    super.dispose();
-  }
+    List<Map<String, dynamic>?> normalizedPoints = _points.map((p) {
+      if (p == null) return null;
+      return {
+        'x': (p.dx / size.width).clamp(0.0, 1.0),
+        'y': (p.dy / size.height).clamp(0.0, 1.0),
+      };
+    }).toList();
 
-  // --- UI Component: Score Counter ---
-  Widget _buildMenuCounter() {
-    int currentCount = _isAutoMode ? _autoBallCount : _teleopBallCount;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: purpleTheme.withOpacity(0.5)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Updated label to "Fuels"
-          const Text("Fuels", style: TextStyle(color: Colors.white70, fontSize: 14)),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: Icon(Icons.remove_circle_outline, color: purpleTheme),
-            onPressed: () => setState(() => _isAutoMode
-                ? (_autoBallCount > 0 ? _autoBallCount-- : null)
-                : (_teleopBallCount > 0 ? _teleopBallCount-- : null)),
-          ),
-          Text(
-            "$currentCount",
-            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w300),
-          ),
-          IconButton(
-            icon: Icon(Icons.add_circle_outline, color: purpleTheme),
-            onPressed: () => setState(() => _isAutoMode ? _autoBallCount++ : _teleopBallCount++),
-          ),
-        ],
-      ),
-    );
-  }
+    final Map<String, dynamic> payload = {
+      'roomName': widget.roomName,
+      'user': widget.userName,
+      'position': widget.position,
+      'matchNumber': widget.matchNumber,
+      'teamNumber': widget.teamNumber,
+      'autoBallCount': _autoBalls,
+      'teleopBallCount': _teleBalls,
+      'isLeave': _isLeave,
+      'isAutoHanging': _isHanging,
+      'endgameLevel': _endgameLevel,
+      'autoPathPoints': normalizedPoints,
+      'autoBump': _autoBump,
+      'autoTrench': _autoTrench,
+      'autoDepot': _autoDepot,
+      'autoOutpost': _autoOutpost,
+      'teleBump': _teleBump,
+      'teleTrench': _teleTrench,
+      'teleDepot': _teleDepot,
+      'teleOutpost': _teleOutpost,
+    };
 
-  // Endgame Selector
-  void _showEndgamePicker() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1C1B1F),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.7,
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text("Endgame Level",
-                    style: TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w500)),
+    try {
+      final response = await http.post(
+        Uri.parse('${Api.serverIp}/v1/rooms/submit-report'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode == 200 && mounted) {
+        final responseData = jsonDecode(response.body);
+        final int reportIndex = responseData['index'] ?? 0;
+
+        // 跳轉到評價頁，不再 pop
+        Navigator.push(context, MaterialPageRoute(
+          builder: (context) =>
+              RatingPage(
+                roomName: widget.roomName,
+                reportData: payload,
+                reportIndex: reportIndex,
               ),
-              const Divider(color: Colors.white10, height: 1),
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: 4,
-                  itemBuilder: (context, i) => ListTile(
-                    visualDensity: VisualDensity.compact,
-                    title: Text(
-                      i == 0 ? "None" : "Level $i",
-                      style: const TextStyle(color: Colors.white, fontSize: 15),
-                      textAlign: TextAlign.center,
-                    ),
-                    onTap: () {
-                      setState(() => _endgameLevel = i);
-                      Navigator.pop(context);
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChipButton({required String label, required bool isActive, required VoidCallback onTap}) {
-    return FilterChip(
-      label: Text(label),
-      selected: isActive,
-      onSelected: (v) => onTap(),
-      selectedColor: purpleTheme.withOpacity(0.3),
-      checkmarkColor: purpleTheme,
-      labelStyle: TextStyle(color: isActive ? purpleTheme : Colors.white70),
-      backgroundColor: Colors.black45,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: isActive ? purpleTheme : Colors.white24),
-      ),
-    );
+        ));
+      }
+    } catch (e) {
+      debugPrint("Submit Error: $e");
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          // Background Field Image
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.6,
-              child: Image.asset(
-                  'assets/images/field2026.png',
-                  fit: BoxFit.cover,
-                  errorBuilder: (c, e, s) => Container(color: Colors.black)
+      backgroundColor: const Color(0xFFF2F2F7),
+      appBar: AppBar(
+          title: Text("M${widget.matchNumber} - T${widget.teamNumber}")),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            _buildSection("AUTONOMOUS", Colors.orange, [
+              _counterRow("Auto Fuels", _autoBalls, (v) =>
+                  setState(() => _autoBalls = v)),
+              const Divider(height: 32),
+              _tacticalGrid([
+                _smallCounter(
+                    "BUMP", _autoBump, (v) => setState(() => _autoBump = v)),
+                _smallCounter("TRENCH", _autoTrench, (v) =>
+                    setState(() => _autoTrench = v)),
+                _smallCounter(
+                    "DEPOT", _autoDepot, (v) => setState(() => _autoDepot = v)),
+                _smallCounter("OUTPOST", _autoOutpost, (v) =>
+                    setState(() => _autoOutpost = v)),
+              ]),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(child: _toggleChip(
+                    "Leave", _isLeave, (v) => setState(() => _isLeave = v))),
+                const SizedBox(width: 8),
+                Expanded(child: _toggleChip(
+                    "Hang", _isHanging, (v) => setState(() => _isHanging = v))),
+              ]),
+              _buildCanvas(),
+            ]),
+            _buildSection("TELEOP", Colors.blue, [
+              _counterRow("Tele Fuels", _teleBalls, (v) =>
+                  setState(() => _teleBalls = v)),
+              const Divider(height: 32),
+              _tacticalGrid([
+                _smallCounter(
+                    "BUMP", _teleBump, (v) => setState(() => _teleBump = v)),
+                _smallCounter("TRENCH", _teleTrench, (v) =>
+                    setState(() => _teleTrench = v)),
+                _smallCounter(
+                    "DEPOT", _teleDepot, (v) => setState(() => _teleDepot = v)),
+                _smallCounter("OUTPOST", _teleOutpost, (v) =>
+                    setState(() => _teleOutpost = v)),
+              ]),
+              const Center(child: Text("Endgame Level",
+                  style: TextStyle(fontWeight: FontWeight.bold))),
+              _buildEndgamePicker(),
+            ]),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              child: ElevatedButton(
+                onPressed: _submitReport,
+                style: ElevatedButton.styleFrom(backgroundColor: primaryPurple,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 60)),
+                child: const Text("SUBMIT DATA", style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
               ),
             ),
-          ),
-
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  _buildTopBar(),
-                  const Spacer(),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      _buildControlPanel(),
-                      const Spacer(),
-                      FloatingActionButton.large(
-                        onPressed: _showConfirmDialog,
-                        backgroundColor: purpleTheme,
-                        child: const Icon(Icons.send_rounded, size: 36, color: Colors.black),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildTopBar() {
-    bool isRed = widget.position.contains('Red');
-    return Row(
+  // --- 繪圖與 UI 組件 (已修復溢出與手勢) ---
+  bool _isCanvasLocked = true; // 在 State 中新增此變數，預設鎖定
+
+  Widget _buildCanvas() {
+    return Column(
       children: [
-        IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text("AUTO PATH", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+            Row(
+              children: [
+                // 鎖定/解鎖按鈕
+                TextButton.icon(
+                  onPressed: () => setState(() => _isCanvasLocked = !_isCanvasLocked),
+                  icon: Icon(_isCanvasLocked ? Icons.lock_outline : Icons.lock_open, size: 18),
+                  label: Text(_isCanvasLocked ? "chick" : "drawing..."),
+                  style: TextButton.styleFrom(
+                    foregroundColor: _isCanvasLocked ? Colors.grey : primaryPurple,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                ),
+                // 清除按鈕
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 20),
+                  onPressed: _isCanvasLocked ? null : () => setState(() => _points.clear()),
+                  tooltip: "Clear",
+                ),
+              ],
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Chip(
-          label: Text("Match ${widget.matchNumber} | Team ${widget.teamNumber}"),
-          backgroundColor: Colors.black87,
-          labelStyle: const TextStyle(color: Colors.white),
-        ),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: isRed ? Colors.red.withOpacity(0.2) : Colors.blue.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: isRed ? Colors.red : Colors.blue),
-          ),
-          child: Text(
-            widget.position,
-            style: TextStyle(
-              color: isRed ? Colors.red[200] : Colors.blue[200],
-              fontWeight: FontWeight.bold,
+        AspectRatio(
+          aspectRatio: 16 / 9,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _isCanvasLocked ? Colors.black12 : primaryPurple.withOpacity(0.5), width: 1.5),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Stack(
+                children: [
+                  // 浮水印/遮罩：鎖定時變暗
+                  Image.asset(
+                    'assets/images/field2026.png',
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    color: _isCanvasLocked ? Colors.white.withOpacity(0.8) : null,
+                    colorBlendMode: BlendMode.modulate,
+                  ),
+                  Positioned.fill(
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (e) {
+                        if (_isCanvasLocked) return; // 鎖定時不准畫
+                        setState(() => _points.add(e.localPosition));
+                      },
+                      onPointerMove: (e) {
+                        if (_isCanvasLocked) return;
+                        setState(() => _points.add(e.localPosition));
+                      },
+                      onPointerUp: (e) {
+                        if (_isCanvasLocked) return;
+                        setState(() => _points.add(null));
+                      },
+                      child: CustomPaint(
+                        key: _canvasKey,
+                        painter: ScoutingPainter(_points, primaryPurple),
+                        size: Size.infinite,
+                      ),
+                    ),
+                  ),
+
+                  if (_isCanvasLocked)
+                    const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.touch_app, color: Colors.grey, size: 30),
+                          Text("Lock in first", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
       ],
     );
   }
-
-  Widget _buildControlPanel() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1C1B1F).withOpacity(0.9),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white10),
+  Widget _quickAddBtn(String label, Color color, VoidCallback? onTap) {
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        side: BorderSide(color: color.withOpacity(0.4)),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        backgroundColor: onTap == null ? Colors.grey.shade100 : Colors.white,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(value: true, label: Text("AUTO"), icon: Icon(Icons.bolt)),
-              ButtonSegment(value: false, label: Text("TELEOP"), icon: Icon(Icons.videogame_asset)),
-            ],
-            selected: {_isAutoMode},
-            onSelectionChanged: (Set<bool> newSelection) {
-              setState(() => _isAutoMode = newSelection.first);
-            },
-            style: SegmentedButton.styleFrom(
-              backgroundColor: Colors.black26,
-              selectedBackgroundColor: purpleTheme,
-              selectedForegroundColor: Colors.black,
-            ),
-          ),
-          const SizedBox(height: 16),
+      child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+    );
+  }
 
-          _buildMenuCounter(),
-          const SizedBox(height: 16),
+  Widget _smallCounter(String label, int value, Function(int) onChanged) =>
+      Column(children: [
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          IconButton(padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              icon: const Icon(Icons.remove, size: 18),
+              onPressed: value > 0 ? () => onChanged(value - 1) : null),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text("$value", style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.bold))),
+          IconButton(padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              icon: const Icon(Icons.add, size: 18, color: Colors.blue),
+              onPressed: () => onChanged(value + 1)),
+        ]),
+      ]);
 
-          if (_isAutoMode)
-            Row(
+  Widget _tacticalGrid(List<Widget> children) =>
+      GridView.count(shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          childAspectRatio: 2.2,
+          children: children);
+
+  Widget _buildSection(String t, Color c, List<Widget> ch) =>
+      Container(margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+              color: Colors.white, borderRadius: BorderRadius.circular(20)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildChipButton(label: "Leave Zone", isActive: _isLeave, onTap: () => setState(() => _isLeave = !_isLeave)),
-                const SizedBox(width: 8),
-                _buildChipButton(label: "Auto Hang", isActive: _isAutoHanging, onTap: () => setState(() => _isAutoHanging = !_isAutoHanging)),
-              ],
-            )
-          else
-            ActionChip(
-              avatar: const Icon(Icons.anchor, size: 16),
-              label: Text(_endgameLevel == 0 ? "Select Endgame" : "Endgame: Level $_endgameLevel"),
-              onPressed: _showEndgamePicker,
-              backgroundColor: _endgameLevel > 0 ? purpleTheme.withOpacity(0.2) : Colors.black45,
-              labelStyle: TextStyle(color: _endgameLevel > 0 ? purpleTheme : Colors.white),
-            ),
-        ],
-      ),
-    );
-  }
+                Text(
+                    t, style: TextStyle(color: c, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                ...ch
+              ]));
 
-  void _showConfirmDialog() {
-    // UPDATED LOGIC: Auto Fuels (* 1) and Teleop Fuels (* 1)
-    int pts = (_autoBallCount * 1) + (_isLeave ? 3 : 0) + (_isAutoHanging ? 15 : 0) + (_teleopBallCount * 1) + (_endgameLevel * 10);
-
-    showDialog(
-      context: context,
-      builder: (c) => AlertDialog(
-        backgroundColor: const Color(0xFF2B2930),
-        title: const Text("Confirm Submission", style: TextStyle(color: Colors.white)),
-        content: Text(
-          "Auto Fuels: $_autoBallCount | Teleop Fuels: $_teleopBallCount\nEstimated Score: $pts pts",
-          style: const TextStyle(color: Colors.white70),
+  Widget _counterRow(String label, int value, Function(int) onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text("$value", style: TextStyle(fontSize: 32, color: primaryPurple, fontWeight: FontWeight.bold)),
+          ],
         ),
-        actions: [
-          TextButton(child: const Text("Back"), onPressed: () => Navigator.pop(c)),
-          FilledButton(
-              child: const Text("Submit Report"),
-              onPressed: () { Navigator.pop(c); _handleUpload(); }
-          ),
-        ],
-      ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            // 減法按鈕（設為紅色系區分）
+            _quickAddBtn("-1", Colors.redAccent, value > 0 ? () => onChanged(value - 1) : null),
+            const SizedBox(width: 8),
+            // 加法按鈕群
+            Expanded(child: _quickAddBtn("+1", Colors.green, () => onChanged(value + 1))),
+            const SizedBox(width: 4),
+            Expanded(child: _quickAddBtn("+5", Colors.green, () => onChanged(value + 5))),
+            const SizedBox(width: 4),
+            Expanded(child: _quickAddBtn("+10", Colors.green, () => onChanged(value + 10))),
+          ],
+        ),
+      ],
     );
-  }
+   }
 
-  Future<void> _handleUpload() async {
-    _showLoading();
-    try {
-      final response = await http.post(
-        Uri.parse('${Api.serverIp}/v1/rooms/submit-report'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'roomName': widget.roomName,
-          'matchNumber': widget.matchNumber,
-          'teamNumber': widget.teamNumber,
-          'position': widget.position,
-          'autoBallCount': _autoBallCount,
-          'teleopBallCount': _teleopBallCount,
-          'isAutoHanging': _isAutoHanging,
-          'isLeave': _isLeave,
-          'endgameLevel': _endgameLevel,
-          'user': widget.userName,
-        }),
-      ).timeout(const Duration(seconds: 8));
+  Widget _stepBtn(String l, Color c, VoidCallback? t) =>
+      OutlinedButton(onPressed: t, child: Text(l));
 
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-        if (mounted) {
-          Navigator.pop(context); // Close loading
-          Navigator.push(context, MaterialPageRoute(builder: (context) => RatingPage(
-            roomName: widget.roomName,
-            reportIndex: result['index'],
-            reportData: {'teamNumber': widget.teamNumber, 'matchNumber': widget.matchNumber},
-          )));
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        _showError("Upload Failed", "Connection error or server timeout.");
-      }
+  Widget _toggleChip(String l, bool a, Function(bool) o) =>
+      FilterChip(label: Text(l), selected: a, onSelected: o);
+
+  Widget _buildEndgamePicker() =>
+      SizedBox(
+        width: double.infinity, // 讓按鈕組撐滿整行，避免寬度隨文字變動
+        child: SegmentedButton<int>(
+          // 透過 style 讓內部按鈕平分空間
+          style: SegmentedButton.styleFrom(
+            visualDensity: VisualDensity.comfortable,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+          ),
+          segments: const [
+            ButtonSegment(
+                value: 0, label: Text("None", style: TextStyle(fontSize: 12))),
+            ButtonSegment(
+                value: 1, label: Text("L1", style: TextStyle(fontSize: 12))),
+            ButtonSegment(
+                value: 2, label: Text("L2", style: TextStyle(fontSize: 12))),
+            ButtonSegment(
+                value: 3, label: Text("L3", style: TextStyle(fontSize: 12))),
+          ],
+          selected: {_endgameLevel},
+          onSelectionChanged: (set) =>
+              setState(() => _endgameLevel = set.first),
+        ),
+      );
+}
+class ScoutingPainter extends CustomPainter {
+  final List<Offset?> points; final Color color;
+  ScoutingPainter(this.points, this.color);
+  @override void paint(Canvas canvas, Size size) {
+    Paint paint = Paint()..color = color..strokeCap = StrokeCap.round..strokeWidth = 5.0;
+    for (int i = 0; i < points.length - 1; i++) {
+      if (points[i] != null && points[i+1] != null) canvas.drawLine(points[i]!, points[i+1]!, paint);
     }
   }
-
-  void _showLoading() => showDialog(context: context, barrierDismissible: false, builder: (c) => const Center(child: CircularProgressIndicator()));
-  void _showError(String t, String m) => showDialog(context: context, builder: (c) => AlertDialog(title: Text(t), content: Text(m), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text("OK"))]));
+  @override bool shouldRepaint(old) => true;
 }

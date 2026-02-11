@@ -1,9 +1,9 @@
-import 'package:flutter/material.dart'; // 切換至 Material
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_application_1/ALLIENCE/startscout.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'api.dart';
+import 'startscout.dart'; // 確保路徑正確
 
 class RatingPage extends StatefulWidget {
   final String roomName;
@@ -26,20 +26,18 @@ class _RatingPageState extends State<RatingPage> {
   final TextEditingController _notesController = TextEditingController();
   bool _isSending = false;
 
-  // 定義評價等級，使用更現代的 M3 色彩
   final List<Map<String, dynamic>> _ratingLevels = [
-    {'label': '夯 ', 'value': 5, 'color': Colors.redAccent},
+    {'label': '夯 (Top Tier)', 'value': 5, 'color': Colors.redAccent},
     {'label': '人上人', 'value': 4, 'color': Colors.orangeAccent},
     {'label': '普通', 'value': 3, 'color': Colors.blueGrey},
-    {'label': '人機', 'value': 2, 'color': Colors.brown},
-    {'label': '拉完了', 'value': 1, 'color': Colors.grey.shade900},
+    {'label': '人機 (Bot)', 'value': 2, 'color': Colors.brown},
+    {'label': '拉完了 (Choked)', 'value': 1, 'color': Colors.black},
   ];
-
 
   @override
   void initState() {
     super.initState();
-    // 回到直向顯示以利輸入備註
+    // 評價頁面強制轉回直向，方便打字
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
 
@@ -52,7 +50,7 @@ class _RatingPageState extends State<RatingPage> {
         Uri.parse('${Api.serverIp}/v1/rooms/update-last-report-comment'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'roomName': widget.roomName, // 👈 這裡直接用 widget 傳進來的 roomName
+          'roomName': widget.roomName,
           'index': widget.reportIndex,
           'rating': _selectedRating,
           'notes': _notesController.text,
@@ -60,20 +58,18 @@ class _RatingPageState extends State<RatingPage> {
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200 && mounted) {
-        // ✅ 修正：使用 pushAndRemoveUntil 回到 StartScout 並清空過往頁面堆疊
+        // ✅ 核心邏輯：清空頁面棧回到 StartScout
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (context) => StartScout(roomName: widget.roomName),
-            settings: const RouteSettings(name: 'StartScout'),
           ),
-              (route) => false, // 這一行會刪除所有舊頁面
+              (route) => false,
         );
       } else {
         throw Exception("Server Error");
       }
     } catch (e) {
-      debugPrint("Error: $e");
-      _showError("上傳失敗", "網路異常或資料錯誤，請稍後再試。");
+      _showError("上傳失敗", "網路異常，請檢查伺服器連線。");
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -82,20 +78,11 @@ class _RatingPageState extends State<RatingPage> {
   void _showError(String title, String msg) {
     showDialog(
       context: context,
-      builder: (c) =>
-          AlertDialog(
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20)),
-            title: Text(
-                title, style: const TextStyle(fontWeight: FontWeight.bold)),
-            content: Text(msg),
-            actions: [
-              TextButton(
-                  child: const Text("確定"),
-                  onPressed: () => Navigator.pop(c)
-              ),
-            ],
-          ),
+      builder: (c) => AlertDialog(
+        title: Text(title),
+        content: Text(msg),
+        actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text("確定"))],
+      ),
     );
   }
 
@@ -104,81 +91,45 @@ class _RatingPageState extends State<RatingPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE),
       appBar: AppBar(
-        title: const Text("Drive Score",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
+        title: const Text("Drive Score"),
         centerTitle: true,
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: false, // 禁止返回，必須完成評價
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16),
+          padding: const EdgeInsets.all(24.0),
           child: Column(
             children: [
-              Text(
-                "Match ${widget.reportData['matchNumber']}",
-                style: TextStyle(color: Colors.grey.shade600,
-                    fontSize: 14,
-                    letterSpacing: 1.1),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                "Team ${widget.reportData['teamNumber']}",
-                style: const TextStyle(
-                    fontSize: 32, fontWeight: FontWeight.w300),
-              ),
-              const SizedBox(height: 32),
+              Text("Match ${widget.reportData['matchNumber']} | Team ${widget.reportData['teamNumber']}",
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+              const SizedBox(height: 20),
 
-              // 評價選擇區域
+              // 評價選擇
               ..._ratingLevels.map((level) => _buildRatingCard(level)),
 
               const SizedBox(height: 24),
-
-              // 備註輸入框
               TextField(
                 controller: _notesController,
-                maxLines: 4,
+                maxLines: 3,
                 decoration: InputDecoration(
-                  hintText: "輸入更多詳細備註",
-                  hintStyle: const TextStyle(
-                      fontSize: 14, color: Colors.black26),
+                  hintText: "是否有特殊故障或防禦表現？",
                   filled: true,
                   fillColor: Colors.white,
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: Colors.grey.withOpacity(0.2)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: Theme
-                        .of(context)
-                        .colorScheme
-                        .primary, width: 1.5),
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                 ),
               ),
-
               const SizedBox(height: 32),
 
-              // 提交按鈕
               SizedBox(
                 width: double.infinity,
                 height: 56,
                 child: FilledButton(
                   onPressed: _isSending ? null : _submitRating,
-                  style: FilledButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
-                  ),
                   child: _isSending
-                      ? const SizedBox(width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                      : const Text("DONE", style: TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w500)),
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("DONE", style: TextStyle(fontSize: 18)),
                 ),
               ),
-              const SizedBox(height: 40),
             ],
           ),
         ),
@@ -188,52 +139,25 @@ class _RatingPageState extends State<RatingPage> {
 
   Widget _buildRatingCard(Map<String, dynamic> level) {
     bool isSelected = _selectedRating == level['value'];
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: isSelected ? level['color'] : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        elevation: isSelected ? 4 : 0,
-        shadowColor: level['color'].withOpacity(0.4),
-        child: InkWell(
+    return GestureDetector(
+      onTap: () => setState(() => _selectedRating = level['value']),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        decoration: BoxDecoration(
+          color: isSelected ? level['color'] : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          onTap: () => setState(() => _selectedRating = level['value']),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 18),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isSelected ? Colors.transparent : Colors.grey
-                    .withOpacity(0.15),
-                width: 1,
-              ),
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Text(
-                  level['label'],
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
-                    color: isSelected ? Colors.white : Colors.black87,
-                  ),
-                ),
-                if (isSelected)
-                  const Positioned(
-                    right: 20,
-                    child: Icon(
-                        Icons.check_circle, color: Colors.white, size: 20),
-                  ),
-              ],
-            ),
-          ),
+          border: Border.all(color: isSelected ? Colors.transparent : Colors.black12),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(level['label'],
+                style: TextStyle(fontSize: 16, color: isSelected ? Colors.white : Colors.black87, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+            if (isSelected) const Icon(Icons.check_circle, color: Colors.white),
+          ],
         ),
       ),
     );
   }
-//k;L
 }
-

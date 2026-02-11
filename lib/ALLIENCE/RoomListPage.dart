@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'package:flutter/material.dart'; // 切換至 Material
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_application_1/ALLIENCE/startscout.dart';
+import 'package:flutter_application_1/ALLIENCE/startscout.dart'; // Ensure this path is correct
 import 'api.dart';
 
 class RoomListPage extends StatefulWidget {
@@ -12,140 +12,188 @@ class RoomListPage extends StatefulWidget {
 }
 
 class _RoomListPageState extends State<RoomListPage> {
-  // 使用更現代的紫色調
   final Color _brandPurple = const Color(0xFF673AB7);
 
-  Future<List<dynamic>> _fetchRooms() async {
-    final String serverIp = Api.serverIp;
-    final url = Uri.parse('$serverIp/v1/rooms');
+  // Data Storage
+  List<dynamic> _allRooms = [];      // Original data from server
+  List<dynamic> _filteredRooms = []; // Data after search filter
+  bool _isLoading = true;
+  String _errorMsg = "";
+
+  // Search Controller
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+
+    // Listen for search input changes
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // --- Logic Handling ---
+
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMsg = "";
+    });
 
     try {
+      final url = Uri.parse('${Api.serverIp}/v1/rooms');
       final response = await http.get(url).timeout(const Duration(seconds: 5));
+
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        final List<dynamic> data = jsonDecode(response.body);
+        setState(() {
+          _allRooms = data;
+          _filteredRooms = data;
+          _isLoading = false;
+        });
       } else {
-        throw Exception('伺服器代碼: ${response.statusCode}');
+        throw 'Server Error (${response.statusCode})';
       }
     } catch (e) {
-      throw Exception('無法連線至伺服器，請檢查網路設定');
+      setState(() {
+        _errorMsg = 'Could not connect to server. Please check your network settings.';
+        _isLoading = false;
+      });
     }
   }
+
+  void _onSearchChanged() {
+    String query = _searchController.text.toLowerCase();
+    setState(() {
+      _filteredRooms = _allRooms.where((room) {
+        final name = (room['name'] ?? "").toString().toLowerCase();
+        final owner = (room['owner'] ?? "").toString().toLowerCase();
+        return name.contains(query) || owner.contains(query);
+      }).toList();
+    });
+  }
+
+  // --- UI Components ---
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE), // 背景改為極淡的藍紫色調
+      backgroundColor: const Color(0xFFF8F9FE),
       appBar: AppBar(
-        title: const Text(
-          "伺服器房間列表",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500), // 移除粗體
-        ),
+        title: const Text("FRC Room List",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500)),
         centerTitle: true,
-        backgroundColor: Colors.white.withOpacity(0.9),
+        backgroundColor: Colors.white,
         elevation: 0,
-        scrolledUnderElevation: 1, // 滾動時產生的微小陰影
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: _buildSearchBar(),
+          ),
+        ),
       ),
       body: RefreshIndicator(
-        onRefresh: () async => setState(() {}),
+        onRefresh: _loadData,
         color: _brandPurple,
-        child: FutureBuilder<List<dynamic>>(
-          future: _fetchRooms(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator(strokeWidth: 3));
-            }
+        child: _buildBody(),
+      ),
+    );
+  }
 
-            if (snapshot.hasError) {
-              return _buildErrorView(snapshot.error.toString());
-            }
-
-            if (!snapshot.hasData || snapshot.data!.isEmpty) {
-              return _buildEmptyView();
-            }
-
-            final rooms = snapshot.data!;
-
-            return ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              itemCount: rooms.length,
-              itemBuilder: (context, index) => _buildRoomCard(rooms[index]),
-            );
-          },
+  Widget _buildSearchBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: TextField(
+        controller: _searchController,
+        decoration: InputDecoration(
+          hintText: "Search room name or owner...",
+          hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+          prefixIcon: const Icon(Icons.search, size: 20, color: Colors.grey),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+            icon: const Icon(Icons.clear, size: 20),
+            onPressed: () => _searchController.clear(),
+          )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
         ),
       ),
     );
   }
 
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 3));
+    }
+
+    if (_errorMsg.isNotEmpty) {
+      return _buildErrorView(_errorMsg);
+    }
+
+    if (_allRooms.isEmpty) {
+      return _buildEmptyView("No rooms available yet", Icons.inbox_outlined);
+    }
+
+    if (_filteredRooms.isEmpty) {
+      return _buildEmptyView("No matching rooms found", Icons.search_off_rounded);
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      itemCount: _filteredRooms.length,
+      itemBuilder: (context, index) => _buildRoomCard(_filteredRooms[index]),
+    );
+  }
+
   Widget _buildRoomCard(dynamic room) {
-    final String roomName = room['name'] ?? "未知房間";
-    final String ownerName = room['owner'] ?? "匿名";
+    final String roomName = room['name'] ?? "Unknown Room";
+    final String ownerName = room['owner'] ?? "Anonymous";
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 12),
       child: Material(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        // 加上細微的邊框，讓卡片在淡色背景中跳出來
+        borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: () {
-            Navigator.push(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () async {
+            // Auto-refresh on return to prevent entering deleted rooms
+            await Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => StartScout(roomName: roomName)),
             );
+            _loadData();
           },
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.grey.withOpacity(0.1)),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.withOpacity(0.05)),
             ),
             child: Row(
               children: [
-                // 房間圖標容器
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: _brandPurple.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Center(
-                    child: Image.asset(
-                      'assets/images/icon.png',
-                      width: 28,
-                      height: 28,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) =>
-                          Icon(Icons.meeting_room_outlined, color: _brandPurple),
-                    ),
-                  ),
-                ),
+                _buildRoomIcon(),
                 const SizedBox(width: 16),
-                // 文字內容
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        roomName,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500, // 改用中圓體
-                          color: Colors.black87,
-                        ),
-                      ),
+                      Text(roomName,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.black87)),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(Icons.person_outline, size: 14, color: Colors.grey[400]),
-                          const SizedBox(width: 4),
-                          Text(
-                            "擁有者: $ownerName",
-                            style: TextStyle(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w300),
-                          ),
-                        ],
-                      ),
+                      Text("Owner: $ownerName",
+                          style: TextStyle(fontSize: 12, color: Colors.grey[500], fontWeight: FontWeight.w300)),
                     ],
                   ),
                 ),
@@ -158,43 +206,52 @@ class _RoomListPageState extends State<RoomListPage> {
     );
   }
 
+  Widget _buildRoomIcon() {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: _brandPurple.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Image.asset(
+          'assets/images/icon.png',
+          width: 24,
+          height: 24,
+          errorBuilder: (context, _, __) => Icon(Icons.meeting_room_outlined, color: _brandPurple),
+        ),
+      ),
+    );
+  }
+
   Widget _buildErrorView(String msg) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.cloud_off_rounded, size: 64, color: Colors.grey[300]),
+          Icon(Icons.cloud_off_rounded, size: 64, color: Colors.grey[200]),
           const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              msg,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w300),
-            ),
-          ),
+          Text(msg, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
           const SizedBox(height: 24),
-          TextButton.icon(
-            onPressed: () => setState(() {}),
+          ElevatedButton.icon(
+            onPressed: _loadData,
             icon: const Icon(Icons.refresh),
-            label: const Text("再試一次"),
-          )
+            label: const Text("Retry"),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildEmptyView() {
+  Widget _buildEmptyView(String text, IconData icon) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[300]),
+          Icon(icon, size: 64, color: Colors.grey[200]),
           const SizedBox(height: 16),
-          const Text(
-            "目前沒有任何房間",
-            style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w300),
-          ),
+          Text(text, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w300)),
         ],
       ),
     );

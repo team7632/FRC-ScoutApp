@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart'; // 優先使用 Material
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_application_1/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,7 +16,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  String _currentUserName = "載入中...";
+  String _currentUserName = "Loading...";
   String? _photoUrl;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
 
@@ -38,7 +38,7 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  // 修改選單：使用 Material 的 ModalBottomSheet 會比 Cupertino 彈窗更契合 M3 風格
+  // Material 3 style Account Menu
   void _showAccountMenu() {
     showModalBottomSheet(
       context: context,
@@ -50,9 +50,9 @@ class _MyHomePageState extends State<MyHomePage> {
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 20),
           child: Column(
-            mainAxisSize: MainAxisSize.min, // 根據內容高度伸縮
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // 使用者資訊
+              // User Info Header
               ListTile(
                 leading: ClipOval(
                   child: _photoUrl != null
@@ -63,23 +63,23 @@ class _MyHomePageState extends State<MyHomePage> {
                   _currentUserName,
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
                 ),
-                subtitle: const Text("已登入帳戶"),
+                subtitle: const Text("Logged in"),
               ),
               const Divider(indent: 20, endIndent: 20),
-              // 個人設置
+              // Settings
               ListTile(
-                leading: Image.asset('assets/images/settings_icon.png', width: 24, height: 24),
-                title: const Text("個人設置", style: TextStyle(fontWeight: FontWeight.w400)),
+                leading: Image.asset('assets/images/settings_icon.png', width: 24, height: 24, errorBuilder: (context, _, __) => const Icon(Icons.settings)),
+                title: const Text("Profile Settings", style: TextStyle(fontWeight: FontWeight.w400)),
                 trailing: const Icon(Icons.chevron_right, size: 20),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonConfigPage()));
                 },
               ),
-              // 登出
+              // Logout
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.redAccent),
-                title: const Text("登出帳戶", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w400)),
+                title: const Text("Logout", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w400)),
                 onTap: () {
                   Navigator.pop(context);
                   _handleLogout();
@@ -98,10 +98,10 @@ class _MyHomePageState extends State<MyHomePage> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("登出", style: TextStyle(fontWeight: FontWeight.w500)),
-        content: const Text("確定要登出並清除所有登入資訊嗎？"),
+        title: const Text("Logout", style: TextStyle(fontWeight: FontWeight.w500)),
+        content: const Text("Are you sure you want to log out and clear all login information?"),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
           TextButton(
             onPressed: () async {
               await _googleSignIn.signOut();
@@ -113,7 +113,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 );
               }
             },
-            child: const Text("確定", style: TextStyle(color: Colors.redAccent)),
+            child: const Text("Logout", style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -123,7 +123,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE), // 清爽的淡背景色
+      backgroundColor: const Color(0xFFF8F9FE), // Soft background
       appBar: AppBar(
         title: const Text('7632SCOUT', style: TextStyle(letterSpacing: 1.5, fontSize: 16)),
         actions: [
@@ -133,6 +133,7 @@ class _MyHomePageState extends State<MyHomePage> {
               padding: const EdgeInsets.only(right: 16),
               child: CircleAvatar(
                 radius: 16,
+                backgroundColor: Colors.grey[200],
                 backgroundImage: _photoUrl != null ? NetworkImage(_photoUrl!) : null,
                 child: _photoUrl == null ? const Icon(Icons.person, size: 20) : null,
               ),
@@ -147,7 +148,7 @@ class _MyHomePageState extends State<MyHomePage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // 大頭像
+                // Profile Avatar
                 CircleAvatar(
                   radius: 45,
                   backgroundColor: Colors.deepPurple.withOpacity(0.1),
@@ -164,12 +165,12 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ),
                 const Text(
-                  "歡迎回來！",
+                  "Welcome back!",
                   style: TextStyle(color: Colors.black45, fontSize: 15, fontWeight: FontWeight.w300),
                 ),
                 const SizedBox(height: 60),
 
-                // 功能按鈕區 - 統一使用 ElevatedButton 並移除粗體
+                // Main Menu Options
                 _buildMenuButton(
                   icon: Icons.add_rounded,
                   label: "Create Room",
@@ -188,7 +189,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 const SizedBox(height: 16),
                 _buildMenuButton(
                   icon: Icons.cloud_download_outlined,
-                  label: "View from The Blue Alliance",
+                  label: "Fetch from The Blue Alliance",
                   color: Colors.blueAccent,
                   isFilled: false,
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GetFromTheBlueAlliance())),
@@ -201,7 +202,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  // 封裝一個清爽的按鈕組件
+  // Reusable Menu Button Component
   Widget _buildMenuButton({required IconData icon, required String label, required Color color, required bool isFilled, required VoidCallback onTap}) {
     return SizedBox(
       width: double.infinity,
@@ -215,6 +216,7 @@ class _MyHomePageState extends State<MyHomePage> {
           backgroundColor: color,
           foregroundColor: Colors.white,
           elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
         ),
       )
           : OutlinedButton.icon(

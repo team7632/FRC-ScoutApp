@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'alltotal.dart';
 import 'api.dart';
@@ -26,8 +27,13 @@ class _AdminConfigState extends State<AdminConfig> {
   int currentMatch = 1;
   bool isLoading = true;
   bool _isSyncing = false;
+  bool _isSaving = false;
 
-  final Color primaryDark = const Color(0xFF1A1C1E);
+  Timer? _debounce;
+
+  // --- 顏色配置：換成紫色調 ---
+  final Color brandPurple = const Color(0xFF673AB7);
+  final Color lightPurple = const Color(0xFFF3E5F5);
   final Color cardColor = Colors.white;
   final Color redAlliance = const Color(0xFFE53935);
   final Color blueAlliance = const Color(0xFF1E88E5);
@@ -38,7 +44,13 @@ class _AdminConfigState extends State<AdminConfig> {
     _initializeData();
   }
 
-  // --- Logic Section ---
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  // --- 核心邏輯 (保持不變) ---
 
   Future<void> _initializeData() async {
     if (widget.initialTbaData != null && widget.initialTbaData!.isNotEmpty) {
@@ -87,50 +99,231 @@ class _AdminConfigState extends State<AdminConfig> {
   }
 
   Future<void> autoSave() async {
-    final body = json.encode({
-      "roomName": widget.roomName,
-      "matchNumber": currentMatch,
-      "assignments": assignments,
-      "teams": teams
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    setState(() => _isSaving = true);
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      final body = json.encode({
+        "roomName": widget.roomName,
+        "matchNumber": currentMatch,
+        "assignments": assignments,
+        "teams": teams
+      });
+      try {
+        await http.post(
+          Uri.parse('${Api.serverIp}/v1/rooms/save-config'),
+          headers: {"Content-Type": "application/json"},
+          body: body,
+        );
+        if (mounted) setState(() => _isSaving = false);
+      } catch (e) {
+        if (mounted) setState(() => _isSaving = false);
+      }
     });
+  }
+
+  Future<void> _deleteRoom() async {
+    bool confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Room"),
+        content: Text("Are you sure you want to delete \"${widget.roomName}\"? All data will be lost."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text("Delete", style: TextStyle(color: Colors.red))
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirm) return;
+    setState(() => isLoading = true);
     try {
-      await http.post(
-        Uri.parse('${Api.serverIp}/v1/rooms/save-config'),
-        headers: {"Content-Type": "application/json"},
-        body: body,
-      );
-      debugPrint("Auto-saved Match $currentMatch");
+      await http.delete(Uri.parse('${Api.serverIp}/v1/rooms/delete?roomName=${widget.roomName}'));
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
-      debugPrint("Auto-save failed: $e");
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
-  void _addNewMatch() {
-    int nextMatch = (availableMatches.isEmpty ? 0 : availableMatches.last) + 1;
-    setState(() {
-      availableMatches.add(nextMatch);
-      currentMatch = nextMatch;
-      teams = {};
-    });
-    autoSave();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Added Match $nextMatch"), behavior: SnackBarBehavior.floating),
+  // --- UI 元件 ---
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FE), // 與 RoomListPage 一致的背景
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        leading: IconButton(
+          icon: Icon(Icons.analytics_outlined, color: brandPurple),
+          onPressed: _goToAllTotal,
+        ),
+        title: Column(
+          children: [
+            Text(widget.roomName, style: const TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w500)),
+            Text(_isSaving ? "Saving..." : "Saved",
+                style: TextStyle(color: _isSaving ? Colors.orange : Colors.green, fontSize: 10)),
+          ],
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_outlined, color: Colors.redAccent),
+            onPressed: _deleteRoom,
+          ),
+        ],
+      ),
+      body: isLoading
+          ? Center(child: CircularProgressIndicator(color: brandPurple))
+          : SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            _buildMatchHeader(),
+            const SizedBox(height: 24),
+            _buildSectionTitle("RED ALLIANCE", redAlliance),
+            ...["Red 1", "Red 2", "Red 3"].map((pos) => _buildStationCard(pos, redAlliance)),
+            const SizedBox(height: 16),
+            _buildSectionTitle("BLUE ALLIANCE", blueAlliance),
+            ...["Blue 1", "Blue 2", "Blue 3"].map((pos) => _buildStationCard(pos, blueAlliance)),
+          ],
+        ),
+      ),
     );
+  }
+
+  Widget _buildMatchHeader() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        // 改為紫色漸層
+        gradient: LinearGradient(
+          colors: [brandPurple, brandPurple.withOpacity(0.8)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: brandPurple.withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Match $currentMatch",
+                  style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+              ElevatedButton(
+                onPressed: _showMatchSelector,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white.withOpacity(0.2),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text("Switch Match"),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: _isSyncing ? null : _syncMatchData,
+            icon: const Icon(Icons.sync, color: Colors.white, size: 16),
+            label: const Text("Sync TBA Data", style: TextStyle(color: Colors.white, fontSize: 13)),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStationCard(String pos, Color accentColor) {
+    String scoutName = assignments[pos] ?? "";
+    bool isAssigned = scoutName.isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: accentColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(pos, style: TextStyle(fontWeight: FontWeight.bold, color: accentColor, fontSize: 12)),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 70,
+            child: TextField(
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              controller: TextEditingController.fromValue(
+                TextEditingValue(
+                  text: teams[pos] ?? "",
+                  selection: TextSelection.collapsed(offset: (teams[pos] ?? "").length),
+                ),
+              ),
+              onChanged: (v) {
+                teams[pos] = v;
+                autoSave();
+              },
+              style: const TextStyle(fontWeight: FontWeight.bold),
+              decoration: const InputDecoration(hintText: "Team", border: InputBorder.none, hintStyle: TextStyle(fontSize: 12)),
+            ),
+          ),
+          const VerticalDivider(width: 20),
+          Expanded(
+            child: PopupMenuButton<String>(
+              onSelected: (val) {
+                setState(() => assignments[pos] = val);
+                autoSave();
+              },
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(isAssigned ? scoutName : "Unassigned",
+                    style: TextStyle(color: isAssigned ? Colors.black : Colors.grey[400], fontSize: 14)),
+                trailing: Icon(Icons.arrow_drop_down, color: Colors.grey[400]),
+              ),
+              itemBuilder: (context) => [
+                const PopupMenuItem(value: "", child: Text("Clear Assignment", style: TextStyle(color: Colors.red))),
+                ...activeUsers.map((u) => PopupMenuItem(value: u is String ? u : u['name'], child: Text(u is String ? u : u['name']))),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- 輔助方法 ---
+  void _goToAllTotal() => Navigator.push(context, MaterialPageRoute(builder: (context) => AllTotalPage(roomName: widget.roomName)));
+
+  void _addNewMatch() {
+    int next = (availableMatches.isEmpty ? 0 : availableMatches.last) + 1;
+    setState(() { availableMatches.add(next); currentMatch = next; teams = {}; });
+    autoSave();
   }
 
   Future<void> _syncMatchData() async {
     setState(() => _isSyncing = true);
-    try {
-      _parseTbaToLocal(currentMatch);
-      await autoSave();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Match $currentMatch synced with TBA data"), behavior: SnackBarBehavior.floating),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSyncing = false);
-    }
+    _parseTbaToLocal(currentMatch);
+    await autoSave();
+    setState(() => _isSyncing = false);
   }
 
   Future<void> _bulkUploadTbaData() async {
@@ -142,227 +335,39 @@ class _AdminConfigState extends State<AdminConfig> {
           "Red 1": tList[3], "Red 2": tList[4], "Red 3": tList[5],
         };
       });
-      await http.post(
-        Uri.parse('${Api.serverIp}/v1/rooms/set-schedule'),
-        headers: {"Content-Type": "application/json"},
-        body: json.encode({"roomName": widget.roomName, "schedule": schedule}),
-      );
-    } catch (e) { debugPrint("Bulk upload error: $e"); }
-  }
-
-  void _goToAllTotal() {
-    Navigator.push(context, MaterialPageRoute(builder: (context) => AllTotalPage(roomName: widget.roomName)));
-  }
-
-  // --- UI Components ---
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.analytics_outlined, color: Colors.blueAccent),
-          onPressed: _goToAllTotal,
-        ),
-        title: Text(widget.roomName, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.cloud_done_outlined, color: Colors.green),
-            onPressed: autoSave,
-          )
-        ],
-      ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildMatchHeader(),
-            const SizedBox(height: 24),
-            _buildSectionTitle("RED ALLIANCE", redAlliance),
-            _buildStationCard("Red 1", redAlliance),
-            _buildStationCard("Red 2", redAlliance),
-            _buildStationCard("Red 3", redAlliance),
-            const SizedBox(height: 24),
-            _buildSectionTitle("BLUE ALLIANCE", blueAlliance),
-            _buildStationCard("Blue 1", blueAlliance),
-            _buildStationCard("Blue 2", blueAlliance),
-            _buildStationCard("Blue 3", blueAlliance),
-            const SizedBox(height: 40),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMatchHeader() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [Color(0xFF2196F3), Color(0xFF00BCD4)]),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("Current Configuration", style: TextStyle(color: Colors.white70, fontSize: 12)),
-                  const SizedBox(height: 4),
-                  Text("Match $currentMatch", style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              Row(
-                children: [
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.blueAccent,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: _showMatchSelector,
-                    child: const Text("Switch ▾"),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    style: IconButton.styleFrom(backgroundColor: Colors.white24, foregroundColor: Colors.white),
-                    icon: const Icon(Icons.add),
-                    onPressed: _addNewMatch,
-                  ),
-                ],
-              )
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Divider(color: Colors.white24, height: 1),
-          const SizedBox(height: 12),
-          InkWell(
-            onTap: _isSyncing ? null : _syncMatchData,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _isSyncing
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.sync, color: Colors.white, size: 16),
-                const SizedBox(width: 8),
-                const Text("Sync Match Teams (TBA)", style: TextStyle(color: Colors.white, fontSize: 13)),
-              ],
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title, Color color) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 12),
-      child: Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w900, letterSpacing: 1.5, fontSize: 14)),
-    );
-  }
-
-  Widget _buildStationCard(String pos, Color accentColor) {
-    String scoutName = assignments[pos] ?? "";
-    bool isAssigned = scoutName.isNotEmpty;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))],
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          children: [
-            Container(width: 6, decoration: BoxDecoration(color: accentColor, borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), bottomLeft: Radius.circular(12)))),
-            const SizedBox(width: 16),
-            SizedBox(width: 50, child: Text(pos, style: TextStyle(fontWeight: FontWeight.bold, color: accentColor))),
-            SizedBox(
-              width: 60,
-              child: TextField(
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                onChanged: (v) { teams[pos] = v; autoSave(); },
-                controller: TextEditingController(text: teams[pos] ?? ""),
-                decoration: const InputDecoration(hintText: "Team #", border: InputBorder.none, hintStyle: TextStyle(fontSize: 14)),
-              ),
-            ),
-            const VerticalDivider(indent: 10, endIndent: 10, width: 20),
-            Expanded(
-              child: PopupMenuButton<String>(
-                offset: const Offset(0, 40),
-                onSelected: (val) { setState(() => assignments[pos] = val); autoSave(); },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_outline, size: 18, color: isAssigned ? Colors.black87 : Colors.grey),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(isAssigned ? scoutName : "Assign User", style: TextStyle(color: isAssigned ? Colors.black87 : Colors.grey, fontSize: 14), overflow: TextOverflow.ellipsis)),
-                      const Icon(Icons.arrow_drop_down, color: Colors.grey),
-                    ],
-                  ),
-                ),
-                itemBuilder: (context) => [
-                  const PopupMenuItem(value: "", child: Text("Clear Assignment", style: TextStyle(color: Colors.red))),
-                  const PopupMenuDivider(),
-                  ...activeUsers.map((u) {
-                    final String name = u is String ? u : u['name'];
-                    return PopupMenuItem(value: name, child: Text(name));
-                  })
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ),
-      ),
-    );
+      await http.post(Uri.parse('${Api.serverIp}/v1/rooms/set-schedule'),
+          headers: {"Content-Type": "application/json"},
+          body: json.encode({"roomName": widget.roomName, "schedule": schedule}));
+    } catch (_) {}
   }
 
   void _showMatchSelector() {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Select Match", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const Divider(),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: availableMatches.length,
-                itemBuilder: (context, index) {
-                  int m = availableMatches[index];
-                  return ListTile(
-                    leading: const Icon(Icons.tag),
-                    title: Text("Match $m", style: TextStyle(fontWeight: m == currentMatch ? FontWeight.bold : FontWeight.normal)),
-                    trailing: m == currentMatch ? const Icon(Icons.check, color: Colors.blue) : null,
-                    onTap: () {
-                      setState(() { currentMatch = m; fetchConfig(); });
-                      Navigator.pop(context);
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+      builder: (context) => ListView(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        children: [
+          ListTile(
+              title: Text("Add New Match", style: TextStyle(color: brandPurple, fontWeight: FontWeight.bold)),
+              leading: Icon(Icons.add_circle_outline, color: brandPurple),
+              onTap: () { _addNewMatch(); Navigator.pop(context); }),
+          const Divider(),
+          ...availableMatches.map((m) => ListTile(
+            title: Text("Match $m", style: TextStyle(fontWeight: currentMatch == m ? FontWeight.bold : FontWeight.normal)),
+            trailing: currentMatch == m ? Icon(Icons.check_circle, color: brandPurple) : null,
+            onTap: () { setState(() { currentMatch = m; fetchConfig(); }); Navigator.pop(context); },
+          ))
+        ],
       ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title, Color color) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
     );
   }
 }

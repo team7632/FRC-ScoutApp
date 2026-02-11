@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:flutter/material.dart'; // 切換至 Material
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
@@ -33,7 +33,7 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
   Future<void> _createRoom() async {
     final String name = _roomNameController.text.trim();
     if (name.isEmpty) {
-      _showError("房間名稱不能為空");
+      _showError("Room name cannot be empty");
       return;
     }
 
@@ -46,7 +46,7 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
 
       final Map<String, dynamic> requestBody = {
         'name': name,
-        'owner': currentUserName ?? "管理員",
+        'owner': currentUserName ?? "Admin",
         'allMatches': widget.allMatchesData,
       };
 
@@ -61,11 +61,11 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
       } else {
-        final errorMsg = jsonDecode(response.body)['message'] ?? "未知錯誤";
-        _showError("建立失敗: $errorMsg");
+        final errorMsg = jsonDecode(response.body)['message'] ?? "Unknown error";
+        _showError("Creation failed: $errorMsg");
       }
     } catch (e) {
-      _showError("無法連線至伺服器: $e");
+      _showError("Unable to connect to server: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -76,11 +76,11 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
       context: context,
       builder: (c) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("提示", style: TextStyle(fontWeight: FontWeight.w500)),
+        title: const Text("Notice", style: TextStyle(fontWeight: FontWeight.w500)),
         content: Text(msg),
         actions: [
           TextButton(
-            child: const Text("確定"),
+            child: const Text("OK"),
             onPressed: () => Navigator.pop(c),
           ),
         ],
@@ -95,29 +95,29 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE),
       appBar: AppBar(
-        title: const Text("建立新房間", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
+        title: const Text("Create New Room", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
         centerTitle: true,
       ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
           children: [
-            // --- TBA 匯入狀態卡片 (Material 3 風格) ---
+            // --- TBA Import Status Card (Material 3 Style) ---
             if (matchCount > 0) _buildTbaStatusCard(matchCount),
 
             const SizedBox(height: 32),
 
             const Text(
-              "房間基本資訊",
-              style: TextStyle(fontSize: 14, color: Colors.black54, letterSpacing: 1.1),
+              "BASIC INFORMATION",
+              style: TextStyle(fontSize: 12, color: Colors.black54, letterSpacing: 1.1),
             ),
             const SizedBox(height: 12),
 
-            // 使用 Material 3 的 TextField 優化輸入體驗
+            // Optimized Material 3 TextField
             TextField(
               controller: _roomNameController,
               decoration: InputDecoration(
-                hintText: "例如: 2026_TPE_Regional",
+                hintText: "e.g., 2026_TPE_Regional",
                 prefixIcon: const Icon(Icons.drive_file_rename_outline, size: 20),
                 filled: true,
                 fillColor: Colors.white,
@@ -146,15 +146,16 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Colors.white,
                   elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                 ),
-                child: const Text("確認建立並匯入排程", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                child: const Text("Create and Import Schedule", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
               ),
             ),
 
             const SizedBox(height: 24),
             const Center(
               child: Text(
-                "建立後，您可以進入部署面板分配 Scout 人員",
+                "After creation, you can enter the management panel to assign scouts to specific stations.",
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: Colors.black38, fontWeight: FontWeight.w300),
               ),
@@ -181,7 +182,7 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
               Icon(Icons.cloud_done_outlined, color: Theme.of(context).colorScheme.primary, size: 24),
               const SizedBox(width: 12),
               Text(
-                "TBA 資料準備就緒",
+                "TBA Data Ready",
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.primary,
                   fontWeight: FontWeight.w500,
@@ -192,7 +193,7 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
           ),
           const SizedBox(height: 12),
           Text(
-            "已載入 $count 場資格賽。建立房間後系統將自動填充排程隊伍。",
+            "Loaded $count qualification matches. The system will automatically populate the match schedule upon room creation.",
             style: TextStyle(
               color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.8),
               fontSize: 13,
