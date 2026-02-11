@@ -1,13 +1,13 @@
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+// 請確保路徑與你的專案結構一致
 import 'package:flutter_application_1/ALLIENCE/MyHomePage.dart';
 import 'package:flutter_application_1/ALLIENCE/RoomListPage.dart';
-
 import 'ALLIENCE/api.dart';
 import 'ALLIENCE/config/pubicconfig.dart';
 
@@ -30,7 +30,6 @@ Future<void> loadSavedConfig() async {
     String? savedIp = prefs.getString('custom_ip');
     if (savedIp != null && savedIp.isNotEmpty) {
       Api.serverIp = savedIp;
-      print("成功載入自定義 IP: ${Api.serverIp}");
     }
   } catch (e) {
     print("讀取設定時出錯: $e");
@@ -43,16 +42,44 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoApp(
+    return MaterialApp(
       title: 'Scouting App',
       debugShowCheckedModeBanner: false,
-      theme: CupertinoThemeData(
-        primaryColor: CupertinoColors.systemPurple,
+      theme: ThemeData(
+        useMaterial3: true,
+        // 使用紫色作為種子色，系統會自動生成輕盈的色調
+        colorSchemeSeed: const Color(0xFF673AB7),
         brightness: Brightness.light,
-        scaffoldBackgroundColor: CupertinoColors.systemGroupedBackground,
-        textTheme: const CupertinoTextThemeData(
-          navActionTextStyle: TextStyle(color: CupertinoColors.systemPurple),
-          navTitleTextStyle: TextStyle(color: CupertinoColors.label, fontWeight: FontWeight.w600),
+
+        // 全域卡片樣式優化
+        cardTheme: CardThemeData(
+          elevation: 0, // 移除沉重陰影
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: Colors.grey.withOpacity(0.1)),
+          ),
+        ),
+
+        // 全域按鈕樣式優化（不加粗）
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            elevation: 0,
+            textStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+          ),
+        ),
+
+        // 全域 AppBar 樣式
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            color: Colors.black87,
+            fontSize: 18,
+            fontWeight: FontWeight.w400, // 移除粗體
+          ),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
         ),
       ),
       home: startPage,
@@ -88,9 +115,8 @@ class _RegisterPageState extends State<RegisterPage> {
       }
 
       final String name = googleUser.displayName ?? "Unknown User";
-      final String photoUrl = googleUser.photoUrl ?? ""; // 👈 抓取 Google 頭像網址
+      final String photoUrl = googleUser.photoUrl ?? "";
 
-      // 呼叫你的後端 API
       final response = await http.post(
         Uri.parse('$serverIp/v1/auth/google-login'),
         headers: {'Content-Type': 'application/json'},
@@ -103,36 +129,33 @@ class _RegisterPageState extends State<RegisterPage> {
 
       if (response.statusCode == 200) {
         final prefs = await SharedPreferences.getInstance();
-
-        // 核心修正：這裡一定要存入頭像網址！
         await prefs.setString('username', name);
-        await prefs.setString('userPhotoUrl', photoUrl); // 👈 加入這行
-
-        print("【Debug 註冊頁】已成功儲存頭像: $photoUrl");
+        await prefs.setString('userPhotoUrl', photoUrl);
 
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          CupertinoPageRoute(builder: (context) => const MyHomePage()),
+          MaterialPageRoute(builder: (context) => const MyHomePage()),
         );
       }
     } catch (error) {
-      print("Google Sign In Error: $error");
+      _showError("登入過程發生錯誤");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   void _showError(String message) {
-    showCupertinoDialog(
+    showDialog(
       context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text("連線提示"),
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("提示", style: TextStyle(fontWeight: FontWeight.w400)),
         content: Text(message),
         actions: [
-          CupertinoDialogAction(
-            child: const Text("確定", style: TextStyle(color: CupertinoColors.systemPurple)),
+          TextButton(
             onPressed: () => Navigator.pop(context),
+            child: const Text("確定"),
           )
         ],
       ),
@@ -141,67 +164,86 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(middle: Text("登入")),
-      child: SafeArea(
+    return Scaffold(
+      body: SafeArea(
         child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32.0),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(40.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Image.asset(
-                    'assets/images/favicon.png',
-                    width: 150,
-                    height: 150,
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(CupertinoIcons.person_crop_circle_fill, size: 100, color: CupertinoColors.systemPurple);
-                    },
+                // Logo 區域
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple.withOpacity(0.03),
+                    shape: BoxShape.circle,
                   ),
-                ),
-                const SizedBox(height: 30),
-                const Text(
-                  "FRC7632 Scout",
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 1.2),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  "Please log in first.",
-                  style: TextStyle(fontSize: 15, color: CupertinoColors.systemGrey),
-                ),
-                const SizedBox(height: 50),
-                SizedBox(
-                  width: double.infinity,
-                  child: _isLoading
-                      ? const CupertinoActivityIndicator()
-                      : CupertinoButton(
-                    color: CupertinoColors.white,
-                    borderRadius: BorderRadius.circular(15),
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    onPressed: _handleGoogleSignIn,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(CupertinoIcons.mail, color: CupertinoColors.black),
-                        const SizedBox(width: 12),
-                        const Text(
-                          "使用 Google 帳戶登入",
-                          style: TextStyle(
-                            color: CupertinoColors.black,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(40),
+                    child: Image.asset(
+                      'assets/images/favicon.png',
+                      width: 110,
+                      height: 110,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(Icons.blur_on, size: 100, color: Colors.deepPurple);
+                      },
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 48),
+
+                // 標題區域 - 使用中度字重而非粗體
                 const Text(
-                  "YEE",
-                  style: TextStyle(fontSize: 12, color: CupertinoColors.systemGrey2),
+                  "FRC7632 Scout",
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black87,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "請先完成 Google 驗證以開始使用",
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w300,
+                    color: Colors.black45,
+                  ),
+                ),
+                const SizedBox(height: 72),
+
+                // 登入按鈕 - 圓潤簡約風格
+                SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                      : ElevatedButton.icon(
+                    onPressed: _handleGoogleSignIn,
+                    icon: const Icon(Icons.mail_outline, size: 20),
+                    label: const Text("使用 Google 帳戶登入"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black87,
+                      side: BorderSide(color: Colors.grey.shade300, width: 0.8),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 48),
+
+                // 底部版本號
+                const Text(
+                  "Version 2.0.0",
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w200,
+                    color: Colors.grey,
+                    letterSpacing: 2,
+                  ),
                 )
               ],
             ),

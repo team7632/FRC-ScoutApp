@@ -47,40 +47,40 @@ class _AllConfig2State extends State<AllConfig2> {
     TextEditingController autoController = TextEditingController(text: report['autoBallCount'].toString());
     TextEditingController teleController = TextEditingController(text: report['teleopBallCount'].toString());
     bool tempIsHanging = report['isAutoHanging'] == true || report['isAutoHanging'] == 1;
-    bool tempIsLeave = report['isLeave'] == true || report['isLeave'] == 1; // 👈 [新增] 讀取是否離開
+    bool tempIsLeave = report['isLeave'] == true || report['isLeave'] == 1;
     int tempEndgame = int.tryParse(report['endgameLevel'].toString()) ?? 0;
 
     showCupertinoDialog(
       context: context,
       builder: (c) => StatefulBuilder(
         builder: (context, setDialogState) => CupertinoAlertDialog(
-          title: Text("修正 Match ${report['matchNumber']} - Team ${report['teamNumber']}"),
+          title: Text("Edit Match ${report['matchNumber']} - Team ${report['teamNumber']}"),
           content: SingleChildScrollView(
             child: Column(
               children: [
                 const SizedBox(height: 15),
-                _buildEditField("AUTO 進球", autoController),
+                _buildEditField("AUTO Coral", autoController),
                 const SizedBox(height: 10),
-                _buildEditField("TELEOP 進球", teleController),
+                _buildEditField("TELEOP Coral", teleController),
                 const SizedBox(height: 15),
-                // 離開起始區切換
+                // Leave Starting Zone
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("離開起始區 ()", style: TextStyle(fontSize: 14)),
+                    const Text("Leave Zone (3pt)", style: TextStyle(fontSize: 14)),
                     CupertinoSwitch(
                       activeColor: CupertinoColors.activeOrange,
-                      value: tempIsLeave, // 👈 [新增]
+                      value: tempIsLeave,
                       onChanged: (val) => setDialogState(() => tempIsLeave = val),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
-                // 吊掛切換
+                // Auto Hanging
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("AUTO 吊掛 (15pt)", style: TextStyle(fontSize: 14)),
+                    const Text("AUTO Hang (15pt)", style: TextStyle(fontSize: 14)),
                     CupertinoSwitch(
                       value: tempIsHanging,
                       onChanged: (val) => setDialogState(() => tempIsHanging = val),
@@ -93,7 +93,7 @@ class _AllConfig2State extends State<AllConfig2> {
                 CupertinoSlidingSegmentedControl<int>(
                   groupValue: tempEndgame,
                   children: const {
-                    0: Text("無", style: TextStyle(fontSize: 12)),
+                    0: Text("None", style: TextStyle(fontSize: 12)),
                     1: Text("L1", style: TextStyle(fontSize: 12)),
                     2: Text("L2", style: TextStyle(fontSize: 12)),
                     3: Text("L3", style: TextStyle(fontSize: 12)),
@@ -104,10 +104,10 @@ class _AllConfig2State extends State<AllConfig2> {
             ),
           ),
           actions: [
-            CupertinoDialogAction(child: const Text("取消"), onPressed: () => Navigator.pop(c)),
+            CupertinoDialogAction(child: const Text("Cancel"), onPressed: () => Navigator.pop(c)),
             CupertinoDialogAction(
               isDefaultAction: true,
-              child: const Text("確認更新"),
+              child: const Text("Update"),
               onPressed: () async {
                 final newAuto = int.tryParse(autoController.text) ?? 0;
                 final newTele = int.tryParse(teleController.text) ?? 0;
@@ -124,13 +124,13 @@ class _AllConfig2State extends State<AllConfig2> {
                       'newAutoCount': newAuto,
                       'newTeleopCount': newTele,
                       'newIsHanging': tempIsHanging,
-                      'newIsLeave': tempIsLeave, // 👈 [新增] 傳送到後端
+                      'newIsLeave': tempIsLeave,
                       'newEndgameLevel': tempEndgame
                     }),
                   );
                   _fetchReports();
                 } catch (e) {
-                  debugPrint("❌ 更新失敗: $e");
+                  debugPrint("❌ Update Failed: $e");
                 }
               },
             ),
@@ -143,7 +143,7 @@ class _AllConfig2State extends State<AllConfig2> {
   Widget _buildEditField(String label, TextEditingController controller) {
     return Row(
       children: [
-        SizedBox(width: 85, child: Text(label, style: const TextStyle(fontSize: 14))),
+        SizedBox(width: 95, child: Text(label, style: const TextStyle(fontSize: 14))),
         Expanded(
           child: CupertinoTextField(
             controller: controller,
@@ -160,7 +160,7 @@ class _AllConfig2State extends State<AllConfig2> {
     return CupertinoPageScaffold(
       backgroundColor: CupertinoColors.systemGroupedBackground,
       navigationBar: CupertinoNavigationBar(
-        middle: const Text("數據修正面板"),
+        middle: const Text("Data Correction Panel"),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: _fetchReports,
@@ -176,14 +176,14 @@ class _AllConfig2State extends State<AllConfig2> {
           itemBuilder: (context, index) {
             final item = _reports[index];
             bool isHanging = item['isAutoHanging'] == true || item['isAutoHanging'] == 1;
-            bool isLeave = item['isLeave'] == true || item['isLeave'] == 1; // 👈 [新增]
+            bool isLeave = item['isLeave'] == true || item['isLeave'] == 1;
             int egLevel = int.tryParse(item['endgameLevel'].toString()) ?? 0;
 
-            // 計算顯示總分 (包含 Leave 3pt)
-            int total = (int.tryParse(item['autoBallCount'].toString()) ?? 0) * 4 + // 假設 Auto 球 4 分
-                (isLeave ? 0 : 0) + // 👈 [新增] 分數計算
+            // FRC 2025 Scoring Logic (Approximate)
+            int total = (int.tryParse(item['autoBallCount'].toString()) ?? 0) * 4 +
+                (isLeave ? 3 : 0) +
                 (isHanging ? 15 : 0) +
-                (int.tryParse(item['teleopBallCount'].toString()) ?? 0) * 2 + // 假設 Teleop 球 2 分
+                (int.tryParse(item['teleopBallCount'].toString()) ?? 0) * 2 +
                 (egLevel * 10);
 
             return Container(
@@ -200,7 +200,7 @@ class _AllConfig2State extends State<AllConfig2> {
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("偵查員: ${item['user']} (${item['position']})"),
+                    Text("Scout: ${item['user']} (${item['position']})"),
                     const SizedBox(height: 6),
                     Wrap(
                       spacing: 5,
@@ -208,8 +208,8 @@ class _AllConfig2State extends State<AllConfig2> {
                       children: [
                         _tag("Auto: ${item['autoBallCount']}", CupertinoColors.systemYellow),
                         _tag("Tele: ${item['teleopBallCount']}", CupertinoColors.systemBlue),
-                        if (isLeave) _tag("已離開起始區", CupertinoColors.activeOrange), // 👈 [新增] 標籤
-                        if (isHanging) _tag("Auto 吊掛", CupertinoColors.systemGreen),
+                        if (isLeave) _tag("Left Zone", CupertinoColors.activeOrange),
+                        if (isHanging) _tag("Auto Hang", CupertinoColors.systemGreen),
                         if (egLevel > 0) _tag("Endgame L$egLevel", CupertinoColors.systemPurple),
                       ],
                     )

@@ -1,8 +1,7 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'AdminConfig.dart';
@@ -20,25 +19,24 @@ class StartScout extends StatefulWidget {
 
 class _StartScoutState extends State<StartScout> {
   final TextEditingController _teamController = TextEditingController();
-  int _selectedAlliance = 0;
-  String _assignedPosition = "正在檢查分配...";
+  int _selectedAlliance = 0; // 0: Red, 1: Blue
+  String _assignedPosition = "Checking Assignment...";
   String _matchNumber = "-";
   List<dynamic> _activeUsers = [];
   bool _isChecking = true;
   bool _isAdmin = false;
   bool _hasRecorded = false;
-  bool _isServerDown = false; // 新增：判斷伺服器是否斷線
+  bool _isServerDown = false;
   String? _currentUserName;
   Timer? _refreshTimer;
 
-  final Color primaryPurple = CupertinoColors.systemPurple;
+  final Color primaryPurple = const Color(0xFF673AB7);
   final String serverIp = Api.serverIp;
 
   @override
   void initState() {
     super.initState();
     _initData();
-    // 每 5 秒自動同步一次
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (mounted) _checkAssignment();
     });
@@ -56,10 +54,7 @@ class _StartScoutState extends State<StartScout> {
     _currentUserName = prefs.getString('username');
     String? myPhotoUrl = prefs.getString('userPhotoUrl');
 
-    print("【Debug】目前使用者: $_currentUserName, 頭像網址: $myPhotoUrl");
-
     try {
-      // 報到並同步頭像
       await http.post(
         Uri.parse('$serverIp/v1/rooms/join'),
         headers: {'Content-Type': 'application/json'},
@@ -70,7 +65,7 @@ class _StartScoutState extends State<StartScout> {
         }),
       ).timeout(const Duration(seconds: 5));
     } catch (e) {
-      debugPrint("報到連線失敗: $e");
+      debugPrint("Join room connection failed: $e");
     }
 
     await _checkRoomAuthority();
@@ -92,7 +87,7 @@ class _StartScoutState extends State<StartScout> {
         }
       }
     } catch (e) {
-      debugPrint("權限檢查失敗: $e");
+      debugPrint("Permission check failed: $e");
     }
   }
 
@@ -124,7 +119,7 @@ class _StartScoutState extends State<StartScout> {
 
         if (mounted) {
           setState(() {
-            _assignedPosition = myPos ?? "尚未分配位置";
+            _assignedPosition = myPos ?? "Not Assigned";
             _matchNumber = remoteMatch;
             _activeUsers = data['activeUsers'] ?? [];
             _hasRecorded = recorded;
@@ -139,216 +134,68 @@ class _StartScoutState extends State<StartScout> {
       }
     } catch (e) {
       if (mounted) setState(() => _isServerDown = true);
-      debugPrint("資料同步錯誤: $e");
     }
   }
 
   void _showInstruction(String reason) {
-    showCupertinoDialog(
+    showDialog(
       context: context,
-      builder: (c) => CupertinoAlertDialog(
-        title: const Text("無法開始"),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 8.0),
-          child: Text(reason),
-        ),
+      builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Notice", style: TextStyle(fontWeight: FontWeight.w500)),
+        content: Text(reason),
         actions: [
-          CupertinoDialogAction(child: const Text("了解"), onPressed: () => Navigator.pop(c)),
+          TextButton(child: const Text("Got it"), onPressed: () => Navigator.pop(c)),
         ],
-      ),
-    );
-  }
-
-  void _showActiveUsers() {
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: "Dismiss",
-      transitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (context, anim1, anim2) => Container(),
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        return SlideTransition(
-          position: Tween<Offset>(begin: const Offset(-1, 0), end: Offset.zero)
-              .animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Container(
-              width: MediaQuery.of(context).size.width * 0.75,
-              height: double.infinity,
-              decoration: BoxDecoration(
-                color: CupertinoColors.systemBackground.resolveFrom(context),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
-              ),
-              child: SafeArea(
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Row(
-                        children: [
-                          Icon(CupertinoIcons.person_2_fill, color: primaryPurple),
-                          const SizedBox(width: 10),
-                          Text("房間成員 (${_activeUsers.length})", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryPurple)),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: _activeUsers.length,
-                        itemBuilder: (context, index) {
-                          final user = _activeUsers[index];
-                          final String name = user['name'] ?? "Unknown";
-                          final String? photoUrl = user['photoUrl'];
-
-                          return CupertinoListTile(
-                            leading: ClipOval(
-                              child: (photoUrl != null && photoUrl.isNotEmpty && photoUrl.startsWith('http'))
-                                  ? Image.network(
-                                photoUrl,
-                                width: 36, height: 36, fit: BoxFit.cover,
-                                errorBuilder: (c, e, s) => _buildDefaultAvatar(name),
-                              )
-                                  : _buildDefaultAvatar(name),
-                            ),
-                            title: Text(name),
-                            subtitle: name == _currentUserName ? const Text("（You）", style: TextStyle(fontSize: 12)) : null,
-                          );
-                        },
-                      ),
-                    ),
-                    CupertinoButton(child: const Text("關閉"), onPressed: () => Navigator.pop(context)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDefaultAvatar(String name) {
-    return Container(
-      width: 36, height: 36,
-      color: primaryPurple.withOpacity(0.2),
-      child: Center(
-        child: Text(
-            name.isNotEmpty ? name.substring(0, 1).toUpperCase() : "?",
-            style: TextStyle(color: primaryPurple, fontWeight: FontWeight.bold)
-        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    Color allianceColor = _selectedAlliance == 0 ? CupertinoColors.systemRed : CupertinoColors.systemBlue;
-    bool isTeamEmpty = _teamController.text.isEmpty || _teamController.text == "---" || _teamController.text == "";
-    bool canStart = !isTeamEmpty && !_assignedPosition.contains("尚未") && !_hasRecorded && !_isServerDown;
+    final Color allianceColor = _selectedAlliance == 0 ? Colors.red.shade600 : Colors.blue.shade600;
+    final bool isTeamEmpty = _teamController.text.isEmpty || _teamController.text == "---";
+    final bool canStart = !isTeamEmpty && !_assignedPosition.contains("Not") && !_hasRecorded && !_isServerDown;
 
-    return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.systemGroupedBackground,
-      navigationBar: CupertinoNavigationBar(
-        leading: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: _showActiveUsers,
-          child: Icon(CupertinoIcons.person_2_fill, color: primaryPurple),
-        ),
-        middle: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text("Match $_matchNumber"),
-            if (_isChecking) const Padding(
-              padding: EdgeInsets.only(left: 8.0),
-              child: CupertinoActivityIndicator(radius: 7),
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FE),
+      appBar: AppBar(
+        title: Text("Match $_matchNumber", style: const TextStyle(fontWeight: FontWeight.w400)),
+        centerTitle: true,
+        actions: [
+          if (_isAdmin)
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => AdminConfig(roomName: widget.roomName))),
             ),
-          ],
-        ),
-        trailing: _isAdmin ? CupertinoButton(
-          padding: EdgeInsets.zero,
-          child: Icon(CupertinoIcons.settings, color: primaryPurple),
-          onPressed: () => Navigator.push(context, CupertinoPageRoute(builder: (c) => AdminConfig(roomName: widget.roomName))),
-        ) : null,
+        ],
       ),
-      child: SafeArea(
+      drawer: _buildSideDrawer(),
+      body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16),
           child: Column(
             children: [
-              if (_isServerDown)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: CupertinoColors.systemRed.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                    child: const Row(
-                      children: [
-                        Icon(CupertinoIcons.wifi_slash, color: CupertinoColors.systemRed, size: 20),
-                        SizedBox(width: 10),
-                        Text("伺服器連線中斷，請檢查網路", style: TextStyle(color: CupertinoColors.systemRed, fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                ),
-
-              // 分配位置卡片
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: allianceColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: allianceColor.withOpacity(0.3)),
-                ),
-                child: Column(
-                  children: [
-                    Text("分配位置", style: TextStyle(color: allianceColor.withOpacity(0.8), fontSize: 14)),
-                    const SizedBox(height: 8),
-                    Text(_assignedPosition, style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: allianceColor)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 30),
-
-              // 隊號顯示
-              CupertinoTextField(
-                controller: TextEditingController(text: isTeamEmpty ? "---" : _teamController.text),
-                readOnly: true,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: isTeamEmpty ? CupertinoColors.systemGrey4 : allianceColor),
-                decoration: BoxDecoration(color: CupertinoColors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: CupertinoColors.systemGrey4)),
-                padding: const EdgeInsets.symmetric(vertical: 20),
-              ),
-              const SizedBox(height: 40),
-
-              // 開始按鈕
+              if (_isServerDown) _buildConnectionErrorTile(),
+              _buildAssignmentCard(allianceColor),
+              const SizedBox(height: 32),
+              _buildTeamDisplay(isTeamEmpty, allianceColor),
+              const SizedBox(height: 48),
+              _buildMainActionButton(canStart, isTeamEmpty),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
-                child: CupertinoButton(
-                  color: primaryPurple,
-                  disabledColor: CupertinoColors.systemGrey4,
-                  onPressed: canStart ? () => _goScouting() : () {
-                    if (_isServerDown) _showInstruction("伺服器連線失敗，請檢查網路 IP 設定。");
-                    else if (_assignedPosition.contains("尚未")) _showInstruction("管理員尚未為您分配位置（Red/Blue）。");
-                    else if (isTeamEmpty) _showInstruction("此場次尚未設定編號。");
-                    else if (_hasRecorded) _showInstruction("您已經完成此場次的數據錄入，不可重複提交。");
-                  },
-                  child: Text(_hasRecorded ? "本場數據已完成" : "開始錄入數據",
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                height: 54,
+                child: FilledButton.tonal(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => AllConfig2(roomName: widget.roomName))),
+                  child: const Text("View / Edit All Records", style: TextStyle(fontWeight: FontWeight.w400)),
                 ),
               ),
-              const SizedBox(height: 20),
-
-              // 修正按鈕
-              SizedBox(
-                width: double.infinity,
-                child: CupertinoButton(
-                  color: primaryPurple.withOpacity(0.1),
-                  onPressed: () => Navigator.push(context, CupertinoPageRoute(builder: (c) => AllConfig2(roomName: widget.roomName))),
-                  child: Text("查看 / 修正全體紀錄", style: TextStyle(color: primaryPurple, fontWeight: FontWeight.bold)),
+              if (_isChecking)
+                const Padding(
+                  padding: EdgeInsets.only(top: 24),
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
-              ),
             ],
           ),
         ),
@@ -356,26 +203,177 @@ class _StartScoutState extends State<StartScout> {
     );
   }
 
+  Widget _buildSideDrawer() {
+    return Drawer(
+      child: Column(
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(color: primaryPurple.withOpacity(0.05)),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.group_outlined, size: 40, color: primaryPurple),
+                  const SizedBox(height: 12),
+                  Text("Members (${_activeUsers.length})",
+                      style: TextStyle(color: primaryPurple, fontSize: 18, fontWeight: FontWeight.w400)),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              padding: EdgeInsets.zero,
+              itemCount: _activeUsers.length,
+              itemBuilder: (context, index) {
+                final user = _activeUsers[index];
+                final String name = user['name'] ?? "Unknown";
+                final String? photoUrl = user['photoUrl'];
+
+                return ListTile(
+                  leading: CircleAvatar(
+                    radius: 18,
+                    backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
+                    backgroundColor: primaryPurple.withOpacity(0.1),
+                    child: (photoUrl == null || photoUrl.isEmpty)
+                        ? Text(name[0].toUpperCase(), style: TextStyle(color: primaryPurple, fontSize: 12))
+                        : null,
+                  ),
+                  title: Text(name, style: const TextStyle(fontSize: 15)),
+                  trailing: name == _currentUserName ? const Badge(label: Text("You")) : null,
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConnectionErrorTile() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade100),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.wifi_off_rounded, color: Colors.red.shade700, size: 20),
+          const SizedBox(width: 12),
+          Text("Server Connection Failed", style: TextStyle(color: Colors.red.shade700, fontSize: 14)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAssignmentCard(Color allianceColor) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      decoration: BoxDecoration(
+        color: allianceColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: allianceColor.withOpacity(0.15)),
+      ),
+      child: Column(
+        children: [
+          Text("Your Location", style: TextStyle(color: allianceColor.withOpacity(0.7), fontSize: 14)),
+          const SizedBox(height: 12),
+          Text(_assignedPosition, style: TextStyle(fontSize: 42, fontWeight: FontWeight.w500, color: allianceColor)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTeamDisplay(bool isTeamEmpty, Color allianceColor) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+      ),
+      child: Column(
+        children: [
+          const Text("Team Number", style: TextStyle(color: Colors.black38, fontSize: 13)),
+          const SizedBox(height: 8),
+          Text(
+            isTeamEmpty ? "---" : _teamController.text,
+            style: TextStyle(fontSize: 64, fontWeight: FontWeight.w300, color: isTeamEmpty ? Colors.grey[300] : allianceColor),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainActionButton(bool canStart, bool isTeamEmpty) {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: FilledButton(
+        onPressed: canStart ? () => _goScouting() : () {
+          if (_isServerDown) _showInstruction("Server connection failed. Please check your network/IP settings.");
+          else if (_assignedPosition.contains("Not")) _showInstruction("The administrator has not assigned you a location yet.");
+          else if (isTeamEmpty) _showInstruction("Team numbers for this match have not been set yet.");
+          else if (_hasRecorded) _showInstruction("You have already recorded a report for this match.");
+        },
+        style: FilledButton.styleFrom(
+          backgroundColor: _hasRecorded ? Colors.green.shade600 : primaryPurple,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        child: Text(_hasRecorded ? "Report Submitted" : "Start Scouting",
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
+      ),
+    );
+  }
+
   void _goScouting() {
-    showCupertinoDialog(
+    showDialog(
       context: context,
-      builder: (c) => CupertinoAlertDialog(
-        title: const Text("確認資訊"),
-        content: Text("場次：$_matchNumber\n位置：$_assignedPosition\n隊伍：${_teamController.text}"),
+      builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text("Confirm Details", style: TextStyle(fontWeight: FontWeight.w500)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildDialogInfoRow("Match", "Qualification $_matchNumber"),
+            _buildDialogInfoRow("Location", _assignedPosition),
+            _buildDialogInfoRow("Team", _teamController.text),
+          ],
+        ),
         actions: [
-          CupertinoDialogAction(child: const Text("取消"), onPressed: () => Navigator.pop(c)),
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            child: Text("開始", style: TextStyle(color: primaryPurple)),
+          TextButton(child: const Text("Cancel"), onPressed: () => Navigator.pop(c)),
+          FilledButton(
             onPressed: () {
               Navigator.pop(c);
-              Navigator.push(context, CupertinoPageRoute(builder: (context) => ScoutingPage(
+              Navigator.push(context, MaterialPageRoute(builder: (context) => ScoutingPage(
                 roomName: widget.roomName, matchNumber: _matchNumber, teamNumber: _teamController.text,
                 position: _assignedPosition, userName: _currentUserName ?? "Unknown",
               )));
             },
+            child: const Text("Start"),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDialogInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(color: Colors.black87, fontSize: 15),
+          children: [
+            TextSpan(text: "$label: ", style: const TextStyle(color: Colors.black54)),
+            TextSpan(text: value, style: const TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
       ),
     );
   }

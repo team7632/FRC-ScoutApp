@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -36,11 +35,12 @@ class _ScoutingPageState extends State<ScoutingPage> {
   int _endgameLevel = 0;
   bool _isAutoMode = true;
 
-  final Color purpleTheme = CupertinoColors.systemPurple;
+  final Color purpleTheme = const Color(0xFFD0BCFF); // Material 3 Purple
 
   @override
   void initState() {
     super.initState();
+    // Force Landscape orientation for scouting
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -49,40 +49,38 @@ class _ScoutingPageState extends State<ScoutingPage> {
 
   @override
   void dispose() {
+    // Restore Portrait orientation when leaving
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
   }
 
-  // --- UI 組件：小計數器 (放入選單用) ---
+  // --- UI Component: Score Counter ---
   Widget _buildMenuCounter() {
     int currentCount = _isAutoMode ? _autoBallCount : _teleopBallCount;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: purpleTheme, width: 2),
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: purpleTheme.withOpacity(0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text("進球: ", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            minSize: 35,
-            child: Icon(CupertinoIcons.minus_circle, color: purpleTheme, size: 28),
+          const Text("Score", style: TextStyle(color: Colors.white70, fontSize: 14)),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(Icons.remove_circle_outline, color: purpleTheme),
             onPressed: () => setState(() => _isAutoMode
                 ? (_autoBallCount > 0 ? _autoBallCount-- : null)
                 : (_teleopBallCount > 0 ? _teleopBallCount-- : null)),
           ),
-          SizedBox(
-            width: 30,
-            child: Center(child: Text("$currentCount", style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))),
+          Text(
+            "$currentCount",
+            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w300),
           ),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            minSize: 35,
-            child: Icon(CupertinoIcons.plus_circle, color: purpleTheme, size: 28),
+          IconButton(
+            icon: Icon(Icons.add_circle_outline, color: purpleTheme),
             onPressed: () => setState(() => _isAutoMode ? _autoBallCount++ : _teleopBallCount++),
           ),
         ],
@@ -90,155 +88,104 @@ class _ScoutingPageState extends State<ScoutingPage> {
     );
   }
 
-  // 彈出式 Endgame 選擇
+  // Endgame Selector
   void _showEndgamePicker() {
-    showCupertinoModalPopup(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => CupertinoActionSheet(
-        title: const Text("選擇 Endgame 等級"),
-        actions: List.generate(4, (i) => CupertinoActionSheetAction(
-          onPressed: () {
-            setState(() => _endgameLevel = i);
-            Navigator.pop(context);
-          },
-          child: Text(i == 0 ? "None (未攀爬)" : "Level $i"),
-        )),
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("取消"),
+      backgroundColor: const Color(0xFF1C1B1F),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text("Endgame Level",
+                    style: TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w500)),
+              ),
+              const Divider(color: Colors.white10, height: 1),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: 4,
+                  itemBuilder: (context, i) => ListTile(
+                    visualDensity: VisualDensity.compact,
+                    title: Text(
+                      i == 0 ? "None" : "Level $i",
+                      style: const TextStyle(color: Colors.white, fontSize: 15),
+                      textAlign: TextAlign.center,
+                    ),
+                    onTap: () {
+                      setState(() => _endgameLevel = i);
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // 選單按鈕
-  Widget _buildMenuButton({required String label, required bool isActive, required VoidCallback onTap, IconData? icon}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 15),
-        decoration: BoxDecoration(
-          color: isActive ? purpleTheme : Colors.black.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: purpleTheme, width: 2),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) Icon(icon, color: Colors.white, size: 16),
-            if (icon != null) const SizedBox(width: 8),
-            Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-          ],
-        ),
+  Widget _buildChipButton({required String label, required bool isActive, required VoidCallback onTap}) {
+    return FilterChip(
+      label: Text(label),
+      selected: isActive,
+      onSelected: (v) => onTap(),
+      selectedColor: purpleTheme.withOpacity(0.3),
+      checkmarkColor: purpleTheme,
+      labelStyle: TextStyle(color: isActive ? purpleTheme : Colors.white70),
+      backgroundColor: Colors.black45,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: isActive ? purpleTheme : Colors.white24),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
+    return Scaffold(
       backgroundColor: Colors.black,
-      child: Stack(
+      body: Stack(
         children: [
-          // 背景圖保持清晰
+          // Background Field Image
           Positioned.fill(
-            child: Image.asset(
-                'assets/images/field2026.png',
-                fit: BoxFit.cover,
-                errorBuilder: (c, e, s) => Container(color: Colors.black)
+            child: Opacity(
+              opacity: 0.6,
+              child: Image.asset(
+                  'assets/images/field2026.png',
+                  fit: BoxFit.cover,
+                  errorBuilder: (c, e, s) => Container(color: Colors.black)
+              ),
             ),
           ),
 
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.all(16.0),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 頂部導航與資訊
-                  Row(
-                    children: [
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        child: Icon(CupertinoIcons.left_chevron, color: purpleTheme, size: 30),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                      const SizedBox(width: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                        child: Text("M${widget.matchNumber} - T${widget.teamNumber}",
-                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                      ),
-                      const Spacer(),
-                      Text(widget.position, style: TextStyle(color: widget.position.contains('Red') ? Colors.red : Colors.blue, fontWeight: FontWeight.bold, fontSize: 18)),
-                    ],
-                  ),
-
+                  _buildTopBar(),
                   const Spacer(),
-
-                  // --- 左下角集中控制面板 ---
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(15),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: purpleTheme, width: 2),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // 1. 模式切換
-                            CupertinoSegmentedControl<bool>(
-                              groupValue: _isAutoMode,
-                              selectedColor: purpleTheme,
-                              borderColor: purpleTheme,
-                              onValueChanged: (v) => setState(() => _isAutoMode = v),
-                              children: const {
-                                true: Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Text("AUTO", style: TextStyle(fontSize: 12))),
-                                false: Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Text("TELEOP", style: TextStyle(fontSize: 12))),
-                              },
-                            ),
-                            const SizedBox(height: 15),
-
-                            // 2. 進球計數器 (現在整合進選單)
-                            _buildMenuCounter(),
-                            const SizedBox(height: 15),
-
-                            // 3. 模式特定功能
-                            if (_isAutoMode) ...[
-                              Row(
-                                children: [
-                                  _buildMenuButton(label: "Leave", isActive: _isLeave, onTap: () => setState(() => _isLeave = !_isLeave)),
-                                  const SizedBox(width: 10),
-                                  _buildMenuButton(label: "AutoHang", isActive: _isAutoHanging, onTap: () => setState(() => _isAutoHanging = !_isAutoHanging)),
-                                ],
-                              ),
-                            ] else ...[
-                              _buildMenuButton(
-                                label: _endgameLevel == 0 ? "Select Endgame" : "Endgame: L$_endgameLevel",
-                                isActive: _endgameLevel > 0,
-                                onTap: _showEndgamePicker,
-                                icon: CupertinoIcons.up_arrow,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-
+                      _buildControlPanel(),
                       const Spacer(),
-
-                      // --- 右下角提交按鈕 ---
-                      CupertinoButton(
-                        color: purpleTheme,
-                        borderRadius: BorderRadius.circular(50),
-                        padding: const EdgeInsets.all(20),
+                      FloatingActionButton.large(
                         onPressed: _showConfirmDialog,
-                        child: const Icon(CupertinoIcons.checkmark, color: Colors.white, size: 30),
+                        backgroundColor: purpleTheme,
+                        child: const Icon(Icons.send_rounded, size: 36, color: Colors.black),
                       ),
                     ],
                   ),
@@ -251,23 +198,117 @@ class _ScoutingPageState extends State<ScoutingPage> {
     );
   }
 
+  Widget _buildTopBar() {
+    bool isRed = widget.position.contains('Red');
+    return Row(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.close, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        const SizedBox(width: 8),
+        Chip(
+          label: Text("Match ${widget.matchNumber} | Team ${widget.teamNumber}"),
+          backgroundColor: Colors.black87,
+          labelStyle: const TextStyle(color: Colors.white),
+        ),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: isRed ? Colors.red.withOpacity(0.2) : Colors.blue.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: isRed ? Colors.red : Colors.blue),
+          ),
+          child: Text(
+            widget.position,
+            style: TextStyle(
+              color: isRed ? Colors.red[200] : Colors.blue[200],
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildControlPanel() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1C1B1F).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: true, label: Text("AUTO"), icon: Icon(Icons.bolt)),
+              ButtonSegment(value: false, label: Text("TELEOP"), icon: Icon(Icons.videogame_asset)),
+            ],
+            selected: {_isAutoMode},
+            onSelectionChanged: (Set<bool> newSelection) {
+              setState(() => _isAutoMode = newSelection.first);
+            },
+            style: SegmentedButton.styleFrom(
+              backgroundColor: Colors.black26,
+              selectedBackgroundColor: purpleTheme,
+              selectedForegroundColor: Colors.black,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          _buildMenuCounter(),
+          const SizedBox(height: 16),
+
+          if (_isAutoMode)
+            Row(
+              children: [
+                _buildChipButton(label: "Leave Zone", isActive: _isLeave, onTap: () => setState(() => _isLeave = !_isLeave)),
+                const SizedBox(width: 8),
+                _buildChipButton(label: "Auto Hang", isActive: _isAutoHanging, onTap: () => setState(() => _isAutoHanging = !_isAutoHanging)),
+              ],
+            )
+          else
+            ActionChip(
+              avatar: const Icon(Icons.anchor, size: 16),
+              label: Text(_endgameLevel == 0 ? "Select Endgame" : "Endgame: Level $_endgameLevel"),
+              onPressed: _showEndgamePicker,
+              backgroundColor: _endgameLevel > 0 ? purpleTheme.withOpacity(0.2) : Colors.black45,
+              labelStyle: TextStyle(color: _endgameLevel > 0 ? purpleTheme : Colors.white),
+            ),
+        ],
+      ),
+    );
+  }
+
   void _showConfirmDialog() {
     int pts = (_autoBallCount * 4) + (_isLeave ? 3 : 0) + (_isAutoHanging ? 15 : 0) + (_teleopBallCount * 2) + (_endgameLevel * 10);
-    showCupertinoDialog(
+    showDialog(
       context: context,
-      builder: (c) => CupertinoAlertDialog(
-        title: const Text("確認提交數據"),
-        content: Text("Auto: $_autoBallCount球 | Tele: $_teleopBallCount球\n預計得分：$pts pt"),
+      builder: (c) => AlertDialog(
+        backgroundColor: const Color(0xFF2B2930),
+        title: const Text("Confirm Submission", style: TextStyle(color: Colors.white)),
+        content: Text(
+          "Auto: $_autoBallCount | Teleop: $_teleopBallCount\nEstimated Score: $pts pts",
+          style: const TextStyle(color: Colors.white70),
+        ),
         actions: [
-          CupertinoDialogAction(child: const Text("返回"), onPressed: () => Navigator.pop(c)),
-          CupertinoDialogAction(isDefaultAction: true, child: const Text("確定上傳"), onPressed: () { Navigator.pop(c); _handleUpload(); }),
+          TextButton(child: const Text("Back"), onPressed: () => Navigator.pop(c)),
+          FilledButton(
+              child: const Text("Submit Report"),
+              onPressed: () { Navigator.pop(c); _handleUpload(); }
+          ),
         ],
       ),
     );
   }
 
   Future<void> _handleUpload() async {
-    _showLoadingIndicator();
+    _showLoading();
     try {
       final response = await http.post(
         Uri.parse('${Api.serverIp}/v1/rooms/submit-report'),
@@ -289,8 +330,8 @@ class _ScoutingPageState extends State<ScoutingPage> {
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
         if (mounted) {
-          Navigator.pop(context);
-          Navigator.push(context, CupertinoPageRoute(builder: (context) => RatingPage(
+          Navigator.pop(context); // Close loading
+          Navigator.push(context, MaterialPageRoute(builder: (context) => RatingPage(
             roomName: widget.roomName,
             reportIndex: result['index'],
             reportData: {'teamNumber': widget.teamNumber, 'matchNumber': widget.matchNumber},
@@ -298,10 +339,13 @@ class _ScoutingPageState extends State<ScoutingPage> {
         }
       }
     } catch (e) {
-      if (mounted) { Navigator.pop(context); _showErrorAlert("上傳失敗", "網路異常"); }
+      if (mounted) {
+        Navigator.pop(context);
+        _showError("Upload Failed", "Connection error or server timeout.");
+      }
     }
   }
 
-  void _showLoadingIndicator() => showCupertinoDialog(context: context, builder: (c) => const Center(child: CupertinoActivityIndicator(radius: 15, color: Colors.white)));
-  void _showErrorAlert(String t, String m) => showCupertinoDialog(context: context, builder: (c) => CupertinoAlertDialog(title: Text(t), content: Text(m), actions: [CupertinoDialogAction(child: const Text("OK"), onPressed: () => Navigator.pop(c))]));
+  void _showLoading() => showDialog(context: context, barrierDismissible: false, builder: (c) => const Center(child: CircularProgressIndicator()));
+  void _showError(String t, String m) => showDialog(context: context, builder: (c) => AlertDialog(title: Text(t), content: Text(m), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text("OK"))]));
 }

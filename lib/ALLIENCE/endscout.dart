@@ -1,4 +1,4 @@
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart'; // 切換至 Material
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -25,18 +25,19 @@ class _RatingPageState extends State<RatingPage> {
   final TextEditingController _notesController = TextEditingController();
   bool _isSending = false;
 
+  // 定義評價等級，使用更現代的 M3 色彩
   final List<Map<String, dynamic>> _ratingLevels = [
-    {'label': '夯', 'value': 5, 'color': CupertinoColors.systemRed},
-    {'label': '人上人', 'value': 4, 'color': CupertinoColors.activeOrange},
-    {'label': '普通', 'value': 3, 'color': CupertinoColors.systemGrey},
-    {'label': '人機', 'value': 2, 'color': CupertinoColors.systemBrown},
-    {'label': '拉完了', 'value': 1, 'color': CupertinoColors.black},
+    {'label': '夯 ', 'value': 5, 'color': Colors.redAccent},
+    {'label': '人上人', 'value': 4, 'color': Colors.orangeAccent},
+    {'label': '普通', 'value': 3, 'color': Colors.blueGrey},
+    {'label': '人機', 'value': 2, 'color': Colors.brown},
+    {'label': '拉完了', 'value': 1, 'color': Colors.grey.shade900},
   ];
 
   @override
   void initState() {
     super.initState();
-    // 確保鑑定頁面一定是直向，方便打字與閱讀
+    // 回到直向顯示以利輸入備註
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
 
@@ -57,9 +58,8 @@ class _RatingPageState extends State<RatingPage> {
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200 && mounted) {
-        // 連續執行兩次 pop，這是最穩定的做法
-        Navigator.of(context).pop();
-        Navigator.of(context).pop();
+        // 回到首頁或列表頁
+        Navigator.of(context).popUntil((route) => route.isFirst);
       } else {
         throw Exception("Server Error");
       }
@@ -71,13 +71,14 @@ class _RatingPageState extends State<RatingPage> {
   }
 
   void _showError(String title, String msg) {
-    showCupertinoDialog(
+    showDialog(
       context: context,
-      builder: (c) => CupertinoAlertDialog(
-        title: Text(title),
+      builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
         content: Text(msg),
         actions: [
-          CupertinoDialogAction(child: const Text("確定"), onPressed: () => Navigator.pop(c)),
+          TextButton(child: const Text("確定"), onPressed: () => Navigator.pop(c)),
         ],
       ),
     );
@@ -85,87 +86,119 @@ class _RatingPageState extends State<RatingPage> {
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.systemGroupedBackground,
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text("Drive score"),
-        automaticallyImplyLeading: false, // 禁止中途返回，確保數據完整
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FE),
+      appBar: AppBar(
+        title: const Text("Drive Score", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
+        centerTitle: true,
+        automaticallyImplyLeading: false,
       ),
-      child: SafeArea(
-        child: SingleChildScrollView( // 防止鍵盤遮擋
-          padding: const EdgeInsets.all(24.0),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16),
           child: Column(
             children: [
-              Text("Match ${widget.reportData['matchNumber']}",
-                  style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 16)),
-              Text("Team ${widget.reportData['teamNumber']}",
-                  style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 25),
+              Text(
+                "Match ${widget.reportData['matchNumber']}",
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 14, letterSpacing: 1.1),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "Team ${widget.reportData['teamNumber']}",
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w300),
+              ),
+              const SizedBox(height: 32),
 
-              // 鑑定按鈕列表
-              ..._ratingLevels.map((level) {
-                bool isSelected = _selectedRating == level['value'];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _selectedRating = level['value']),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      decoration: BoxDecoration(
-                        color: isSelected ? level['color'] : CupertinoColors.white,
-                        borderRadius: BorderRadius.circular(15),
-                        boxShadow: isSelected ? [BoxShadow(color: level['color'].withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))] : [],
-                        border: Border.all(
-                          color: isSelected ? level['color'] : CupertinoColors.systemGrey4,
-                          width: 2,
-                        ),
-                      ),
-                      child: Text(
-                        level['label'],
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: isSelected ? CupertinoColors.white : level['color'],
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
+              // 評價選擇區域
+              ..._ratingLevels.map((level) => _buildRatingCard(level)),
 
-              const SizedBox(height: 15),
+              const SizedBox(height: 24),
 
-              // 備註框
-              CupertinoTextField(
+              // 備註輸入框
+              TextField(
                 controller: _notesController,
-                placeholder: "輸入更多備註...",
                 maxLines: 4,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: CupertinoColors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: CupertinoColors.systemGrey4),
+                decoration: InputDecoration(
+                  hintText: "輸入更多詳細備註",
+                  hintStyle: const TextStyle(fontSize: 14, color: Colors.black26),
+                  filled: true,
+                  fillColor: Colors.white,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: Colors.grey.withOpacity(0.2)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.5),
+                  ),
                 ),
               ),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 32),
 
               // 提交按鈕
               SizedBox(
                 width: double.infinity,
-                child: CupertinoButton.filled(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                height: 56,
+                child: FilledButton(
                   onPressed: _isSending ? null : _submitRating,
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
                   child: _isSending
-                      ? const CupertinoActivityIndicator(color: CupertinoColors.white)
-                      : const Text("DONE", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text("DONE", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                 ),
               ),
               const SizedBox(height: 40),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRatingCard(Map<String, dynamic> level) {
+    bool isSelected = _selectedRating == level['value'];
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: isSelected ? level['color'] : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        elevation: isSelected ? 4 : 0,
+        shadowColor: level['color'].withOpacity(0.4),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => setState(() => _selectedRating = level['value']),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isSelected ? Colors.transparent : Colors.grey.withOpacity(0.15),
+                width: 1,
+              ),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Text(
+                  level['label'],
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
+                    color: isSelected ? Colors.white : Colors.black87,
+                  ),
+                ),
+                if (isSelected)
+                  const Positioned(
+                    right: 20,
+                    child: Icon(Icons.check_circle, color: Colors.white, size: 20),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

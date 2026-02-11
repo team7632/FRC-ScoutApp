@@ -1,100 +1,206 @@
-import 'package:flutter/cupertino.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter/material.dart'; // 切換至 Material
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'api.dart'; // 1. 確保有 import
+import 'api.dart';
 
 class CreateRoomPage extends StatefulWidget {
-  const CreateRoomPage({super.key});
+  final String? initialRoomName;
+  final Map<String, List<String>>? allMatchesData;
+
+  const CreateRoomPage({super.key, this.initialRoomName, this.allMatchesData});
 
   @override
   State<CreateRoomPage> createState() => _CreateRoomPageState();
 }
 
 class _CreateRoomPageState extends State<CreateRoomPage> {
-  final TextEditingController _roomNameController = TextEditingController();
+  late TextEditingController _roomNameController;
   bool _isLoading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _roomNameController = TextEditingController(text: widget.initialRoomName);
+  }
+
+  @override
+  void dispose() {
+    _roomNameController.dispose();
+    super.dispose();
+  }
+
   Future<void> _createRoom() async {
-    final name = _roomNameController.text.trim();
-    if (name.isEmpty) return;
+    final String name = _roomNameController.text.trim();
+    if (name.isEmpty) {
+      _showError("房間名稱不能為空");
+      return;
+    }
 
     setState(() => _isLoading = true);
 
     try {
       final prefs = await SharedPreferences.getInstance();
-
-      // 【關鍵新增】強制刷新本地緩存，確保讀到 People.dart 存入的最新名字
-      await prefs.reload();
-
       final String? currentUserName = prefs.getString('username');
       final String serverIp = Api.serverIp;
 
-      debugPrint("---------------------------------");
-      debugPrint("📱 讀取測試結果: [$currentUserName]");
-      debugPrint("📱 所有儲存的 Keys: ${prefs.getKeys()}");
-      debugPrint("---------------------------------");
+      final Map<String, dynamic> requestBody = {
+        'name': name,
+        'owner': currentUserName ?? "管理員",
+        'allMatches': widget.allMatchesData,
+      };
 
       final response = await http.post(
         Uri.parse('$serverIp/v1/rooms/create'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode({
-          'name': name,
-          'owner': currentUserName ?? "匿名用戶",
-        }),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(requestBody),
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
       } else {
-        debugPrint("❌ 伺服器拒絕: ${response.body}");
+        final errorMsg = jsonDecode(response.body)['message'] ?? "未知錯誤";
+        _showError("建立失敗: $errorMsg");
       }
     } catch (e) {
-      debugPrint("❌ 連線異常: $e");
+      _showError("無法連線至伺服器: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  void _showError(String msg) {
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("提示", style: TextStyle(fontWeight: FontWeight.w500)),
+        content: Text(msg),
+        actions: [
+          TextButton(
+            child: const Text("確定"),
+            onPressed: () => Navigator.pop(c),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.systemGroupedBackground,
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text("建立新房間"),
+    final int matchCount = widget.allMatchesData?.length ?? 0;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FE),
+      appBar: AppBar(
+        title: const Text("建立新房間", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
+        centerTitle: true,
       ),
-      child: SafeArea(
+      body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
           children: [
-            const SizedBox(height: 40),
+            // --- TBA 匯入狀態卡片 (Material 3 風格) ---
+            if (matchCount > 0) _buildTbaStatusCard(matchCount),
+
+            const SizedBox(height: 32),
+
             const Text(
-              "房間名稱",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              "房間基本資訊",
+              style: TextStyle(fontSize: 14, color: Colors.black54, letterSpacing: 1.1),
             ),
             const SizedBox(height: 12),
-            CupertinoTextField(
+
+            // 使用 Material 3 的 TextField 優化輸入體驗
+            TextField(
               controller: _roomNameController,
-              placeholder: "請輸入房間名稱",
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: CupertinoColors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: CupertinoColors.systemGrey4),
+              decoration: InputDecoration(
+                hintText: "例如: 2026_TPE_Regional",
+                prefixIcon: const Icon(Icons.drive_file_rename_outline, size: 20),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.withOpacity(0.2)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.5),
+                ),
               ),
             ),
-            const SizedBox(height: 40),
+
+            const SizedBox(height: 48),
+
             _isLoading
-                ? const CupertinoActivityIndicator()
-                : CupertinoButton.filled(
-              onPressed: _createRoom,
-              child: const Text("確定建立"),
+                ? const Center(child: CircularProgressIndicator())
+                : SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton(
+                onPressed: _createRoom,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
+                child: const Text("確認建立並匯入排程", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+              ),
             ),
+
+            const SizedBox(height: 24),
+            const Center(
+              child: Text(
+                "建立後，您可以進入部署面板分配 Scout 人員",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: Colors.black38, fontWeight: FontWeight.w300),
+              ),
+            )
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildTbaStatusCard(int count) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.cloud_done_outlined, color: Theme.of(context).colorScheme.primary, size: 24),
+              const SizedBox(width: 12),
+              Text(
+                "TBA 資料準備就緒",
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            "已載入 $count 場資格賽。建立房間後系統將自動填充排程隊伍。",
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.8),
+              fontSize: 13,
+              height: 1.5,
+              fontWeight: FontWeight.w300,
+            ),
+          ),
+        ],
       ),
     );
   }
