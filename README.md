@@ -1,6 +1,6 @@
-# 🤖 FRC 7632 Scouting System - 2026 Season
+# FRC 7632 Scouting System - 2026 Season
 
-![Team 7632 Banner](https://raw.githubusercontent.com/team7632/FRC7632-2026-season/test/picture/254167164.png)
+![Team 7632 Banner](https://github.com/team7632/FRC-ScoutApp/blob/master/assets/images/favicon.png)
 
 [![Instagram](https://img.shields.io/badge/Instagram-FRC%207632-E4405F?logo=instagram&logoColor=white)](https://www.instagram.com/frc_team_7632/)
 [![Facebook](https://img.shields.io/badge/Facebook-FRC%207632-1877F2?logo=facebook&logoColor=white)](https://www.facebook.com/FRCTeam7632)
