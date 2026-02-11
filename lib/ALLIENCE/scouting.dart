@@ -67,7 +67,8 @@ class _ScoutingPageState extends State<ScoutingPage> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text("Score", style: TextStyle(color: Colors.white70, fontSize: 14)),
+          // Updated label to "Fuels"
+          const Text("Fuels", style: TextStyle(color: Colors.white70, fontSize: 14)),
           const SizedBox(width: 8),
           IconButton(
             icon: Icon(Icons.remove_circle_outline, color: purpleTheme),
@@ -286,14 +287,16 @@ class _ScoutingPageState extends State<ScoutingPage> {
   }
 
   void _showConfirmDialog() {
-    int pts = (_autoBallCount * 4) + (_isLeave ? 3 : 0) + (_isAutoHanging ? 15 : 0) + (_teleopBallCount * 2) + (_endgameLevel * 10);
+    // UPDATED LOGIC: Auto Fuels (* 1) and Teleop Fuels (* 1)
+    int pts = (_autoBallCount * 1) + (_isLeave ? 3 : 0) + (_isAutoHanging ? 15 : 0) + (_teleopBallCount * 1) + (_endgameLevel * 10);
+
     showDialog(
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: const Color(0xFF2B2930),
         title: const Text("Confirm Submission", style: TextStyle(color: Colors.white)),
         content: Text(
-          "Auto: $_autoBallCount | Teleop: $_teleopBallCount\nEstimated Score: $pts pts",
+          "Auto Fuels: $_autoBallCount | Teleop Fuels: $_teleopBallCount\nEstimated Score: $pts pts",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [

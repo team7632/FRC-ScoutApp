@@ -59,11 +59,10 @@ class _AllConfig2State extends State<AllConfig2> {
             child: Column(
               children: [
                 const SizedBox(height: 15),
-                _buildEditField("AUTO Coral", autoController),
+                _buildEditField("AUTO Fuels", autoController), // 👈 已改為 Fuels
                 const SizedBox(height: 10),
-                _buildEditField("TELEOP Coral", teleController),
+                _buildEditField("TELEOP Fuels", teleController), // 👈 已改為 Fuels
                 const SizedBox(height: 15),
-                // Leave Starting Zone
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -76,7 +75,6 @@ class _AllConfig2State extends State<AllConfig2> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                // Auto Hanging
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -179,11 +177,11 @@ class _AllConfig2State extends State<AllConfig2> {
             bool isLeave = item['isLeave'] == true || item['isLeave'] == 1;
             int egLevel = int.tryParse(item['endgameLevel'].toString()) ?? 0;
 
-            // FRC 2025 Scoring Logic (Approximate)
-            int total = (int.tryParse(item['autoBallCount'].toString()) ?? 0) * 4 +
+            // 👈 分數計算邏輯更新：Fuels 現在皆為 1 分
+            int total = (int.tryParse(item['autoBallCount'].toString()) ?? 0) * 1 +
                 (isLeave ? 3 : 0) +
                 (isHanging ? 15 : 0) +
-                (int.tryParse(item['teleopBallCount'].toString()) ?? 0) * 2 +
+                (int.tryParse(item['teleopBallCount'].toString()) ?? 0) * 1 +
                 (egLevel * 10);
 
             return Container(
@@ -206,8 +204,8 @@ class _AllConfig2State extends State<AllConfig2> {
                       spacing: 5,
                       runSpacing: 5,
                       children: [
-                        _tag("Auto: ${item['autoBallCount']}", CupertinoColors.systemYellow),
-                        _tag("Tele: ${item['teleopBallCount']}", CupertinoColors.systemBlue),
+                        _tag("Auto Fuels: ${item['autoBallCount']}", CupertinoColors.systemYellow),
+                        _tag("Tele Fuels: ${item['teleopBallCount']}", CupertinoColors.systemBlue),
                         if (isLeave) _tag("Left Zone", CupertinoColors.activeOrange),
                         if (isHanging) _tag("Auto Hang", CupertinoColors.systemGreen),
                         if (egLevel > 0) _tag("Endgame L$egLevel", CupertinoColors.systemPurple),
