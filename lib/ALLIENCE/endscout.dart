@@ -234,6 +234,6 @@ class _RatingPageState extends State<RatingPage> {
       ),
     );
   }
-//k
+//k;
 }
 
