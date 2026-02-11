@@ -40,6 +40,7 @@ class _StartScoutState extends State<StartScout> {
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (mounted) _checkAssignment();
     });
+
   }
 
   @override

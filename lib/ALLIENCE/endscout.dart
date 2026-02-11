@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart'; // 切換至 Material
 import 'package:flutter/services.dart';
+import 'package:flutter_application_1/ALLIENCE/startscout.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'api.dart';
@@ -34,6 +35,7 @@ class _RatingPageState extends State<RatingPage> {
     {'label': '拉完了', 'value': 1, 'color': Colors.grey.shade900},
   ];
 
+
   @override
   void initState() {
     super.initState();
@@ -50,7 +52,7 @@ class _RatingPageState extends State<RatingPage> {
         Uri.parse('${Api.serverIp}/v1/rooms/update-last-report-comment'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'roomName': widget.roomName,
+          'roomName': widget.roomName, // 👈 這裡直接用 widget 傳進來的 roomName
           'index': widget.reportIndex,
           'rating': _selectedRating,
           'notes': _notesController.text,
@@ -58,13 +60,20 @@ class _RatingPageState extends State<RatingPage> {
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200 && mounted) {
-        // 回到首頁或列表頁
-        Navigator.of(context).popUntil((route) => route.isFirst);
+        // ✅ 修正：使用 pushAndRemoveUntil 回到 StartScout 並清空過往頁面堆疊
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => StartScout(roomName: widget.roomName),
+            settings: const RouteSettings(name: 'StartScout'),
+          ),
+              (route) => false, // 這一行會刪除所有舊頁面
+        );
       } else {
         throw Exception("Server Error");
       }
     } catch (e) {
-      _showError("上傳失敗", "網路異常，請稍後再試。");
+      debugPrint("Error: $e");
+      _showError("上傳失敗", "網路異常或資料錯誤，請稍後再試。");
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -73,14 +82,20 @@ class _RatingPageState extends State<RatingPage> {
   void _showError(String title, String msg) {
     showDialog(
       context: context,
-      builder: (c) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
-        content: Text(msg),
-        actions: [
-          TextButton(child: const Text("確定"), onPressed: () => Navigator.pop(c)),
-        ],
-      ),
+      builder: (c) =>
+          AlertDialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
+            title: Text(
+                title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            content: Text(msg),
+            actions: [
+              TextButton(
+                  child: const Text("確定"),
+                  onPressed: () => Navigator.pop(c)
+              ),
+            ],
+          ),
     );
   }
 
@@ -89,7 +104,8 @@ class _RatingPageState extends State<RatingPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE),
       appBar: AppBar(
-        title: const Text("Drive Score", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
+        title: const Text("Drive Score",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
         centerTitle: true,
         automaticallyImplyLeading: false,
       ),
@@ -100,12 +116,15 @@ class _RatingPageState extends State<RatingPage> {
             children: [
               Text(
                 "Match ${widget.reportData['matchNumber']}",
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14, letterSpacing: 1.1),
+                style: TextStyle(color: Colors.grey.shade600,
+                    fontSize: 14,
+                    letterSpacing: 1.1),
               ),
               const SizedBox(height: 4),
               Text(
                 "Team ${widget.reportData['teamNumber']}",
-                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w300),
+                style: const TextStyle(
+                    fontSize: 32, fontWeight: FontWeight.w300),
               ),
               const SizedBox(height: 32),
 
@@ -120,7 +139,8 @@ class _RatingPageState extends State<RatingPage> {
                 maxLines: 4,
                 decoration: InputDecoration(
                   hintText: "輸入更多詳細備註",
-                  hintStyle: const TextStyle(fontSize: 14, color: Colors.black26),
+                  hintStyle: const TextStyle(
+                      fontSize: 14, color: Colors.black26),
                   filled: true,
                   fillColor: Colors.white,
                   enabledBorder: OutlineInputBorder(
@@ -129,7 +149,10 @@ class _RatingPageState extends State<RatingPage> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.5),
+                    borderSide: BorderSide(color: Theme
+                        .of(context)
+                        .colorScheme
+                        .primary, width: 1.5),
                   ),
                 ),
               ),
@@ -143,11 +166,16 @@ class _RatingPageState extends State<RatingPage> {
                 child: FilledButton(
                   onPressed: _isSending ? null : _submitRating,
                   style: FilledButton.styleFrom(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                   ),
                   child: _isSending
-                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text("DONE", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                      ? const SizedBox(width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                      : const Text("DONE", style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w500)),
                 ),
               ),
               const SizedBox(height: 40),
@@ -177,7 +205,8 @@ class _RatingPageState extends State<RatingPage> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: isSelected ? Colors.transparent : Colors.grey.withOpacity(0.15),
+                color: isSelected ? Colors.transparent : Colors.grey
+                    .withOpacity(0.15),
                 width: 1,
               ),
             ),
@@ -195,7 +224,8 @@ class _RatingPageState extends State<RatingPage> {
                 if (isSelected)
                   const Positioned(
                     right: 20,
-                    child: Icon(Icons.check_circle, color: Colors.white, size: 20),
+                    child: Icon(
+                        Icons.check_circle, color: Colors.white, size: 20),
                   ),
               ],
             ),
@@ -204,4 +234,6 @@ class _RatingPageState extends State<RatingPage> {
       ),
     );
   }
+
 }
+

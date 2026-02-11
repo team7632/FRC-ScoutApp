@@ -15,8 +15,10 @@ class AllConfig2 extends StatefulWidget {
 
 class _AllConfig2State extends State<AllConfig2> {
   List<dynamic> _reports = [];
+  List<dynamic> _filteredReports = []; // 👈 新增：過濾後的資料列表
   bool _isLoading = true;
   final String serverIp = Api.serverIp;
+  final TextEditingController _searchController = TextEditingController(); // 👈 新增：搜尋控制器
 
   @override
   void initState() {
@@ -33,6 +35,7 @@ class _AllConfig2State extends State<AllConfig2> {
       if (response.statusCode == 200) {
         setState(() {
           _reports = jsonDecode(response.body);
+          _runFilter(_searchController.text); // 獲取後立即套用目前的篩選
           _isLoading = false;
         });
       }
@@ -41,8 +44,26 @@ class _AllConfig2State extends State<AllConfig2> {
     }
   }
 
+  // 👈 新增：搜尋篩選邏輯
+  void _runFilter(String keyword) {
+    setState(() {
+      if (keyword.isEmpty) {
+        _filteredReports = _reports;
+      } else {
+        _filteredReports = _reports.where((report) {
+          final match = report['matchNumber'].toString();
+          final team = report['teamNumber'].toString();
+          return match.contains(keyword) || team.contains(keyword);
+        }).toList();
+      }
+    });
+  }
+
   void _editReport(int index) {
-    final report = _reports[index];
+    // 這裡要注意：因為有過濾，傳進來的 index 必須是對應到 _reports 的原始索引
+    // 或者我們直接根據過濾後的物件在原始列表中找尋
+    final report = _filteredReports[index];
+    final originalIndex = _reports.indexOf(report);
 
     TextEditingController autoController = TextEditingController(text: report['autoBallCount'].toString());
     TextEditingController teleController = TextEditingController(text: report['teleopBallCount'].toString());
@@ -59,9 +80,9 @@ class _AllConfig2State extends State<AllConfig2> {
             child: Column(
               children: [
                 const SizedBox(height: 15),
-                _buildEditField("AUTO Fuels", autoController), // 👈 已改為 Fuels
+                _buildEditField("AUTO Fuels", autoController),
                 const SizedBox(height: 10),
-                _buildEditField("TELEOP Fuels", teleController), // 👈 已改為 Fuels
+                _buildEditField("TELEOP Fuels", teleController),
                 const SizedBox(height: 15),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -118,7 +139,7 @@ class _AllConfig2State extends State<AllConfig2> {
                     headers: {'Content-Type': 'application/json'},
                     body: jsonEncode({
                       'roomName': widget.roomName,
-                      'index': index,
+                      'index': originalIndex, // 👈 使用原始索引更新
                       'newAutoCount': newAuto,
                       'newTeleopCount': newTele,
                       'newIsHanging': tempIsHanging,
@@ -166,61 +187,77 @@ class _AllConfig2State extends State<AllConfig2> {
         ),
       ),
       child: SafeArea(
-        child: _isLoading
-            ? const Center(child: CupertinoActivityIndicator())
-            : ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: _reports.length,
-          itemBuilder: (context, index) {
-            final item = _reports[index];
-            bool isHanging = item['isAutoHanging'] == true || item['isAutoHanging'] == 1;
-            bool isLeave = item['isLeave'] == true || item['isLeave'] == 1;
-            int egLevel = int.tryParse(item['endgameLevel'].toString()) ?? 0;
-
-            // 👈 分數計算邏輯更新：Fuels 現在皆為 1 分
-            int total = (int.tryParse(item['autoBallCount'].toString()) ?? 0) * 1 +
-                (isLeave ? 3 : 0) +
-                (isHanging ? 15 : 0) +
-                (int.tryParse(item['teleopBallCount'].toString()) ?? 0) * 1 +
-                (egLevel * 10);
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(15),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)]
+        child: Column(
+          children: [
+            // 👈 新增：搜尋框佈局
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: CupertinoSearchTextField(
+                controller: _searchController,
+                placeholder: "搜尋場次或隊號",
+                onChanged: _runFilter,
               ),
-              child: CupertinoListTile(
-                padding: const EdgeInsets.all(12),
-                title: Text("Match ${item['matchNumber']} - Team ${item['teamNumber']}",
-                    style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Scout: ${item['user']} (${item['position']})"),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 5,
-                      runSpacing: 5,
-                      children: [
-                        _tag("Auto Fuels: ${item['autoBallCount']}", CupertinoColors.systemYellow),
-                        _tag("Tele Fuels: ${item['teleopBallCount']}", CupertinoColors.systemBlue),
-                        if (isLeave) _tag("Left Zone", CupertinoColors.activeOrange),
-                        if (isHanging) _tag("Auto Hang", CupertinoColors.systemGreen),
-                        if (egLevel > 0) _tag("Endgame L$egLevel", CupertinoColors.systemPurple),
-                      ],
-                    )
-                  ],
-                ),
-                additionalInfo: Text("$total pt",
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoColors.activeBlue),
-                ),
-                trailing: const Icon(CupertinoIcons.pencil_circle, color: CupertinoColors.systemGrey),
-                onTap: () => _editReport(index),
+            ),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CupertinoActivityIndicator())
+                  : _filteredReports.isEmpty
+                  ? const Center(child: Text("找不到相關報告", style: TextStyle(color: CupertinoColors.secondaryLabel)))
+                  : ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: _filteredReports.length,
+                itemBuilder: (context, index) {
+                  final item = _filteredReports[index];
+                  bool isHanging = item['isAutoHanging'] == true || item['isAutoHanging'] == 1;
+                  bool isLeave = item['isLeave'] == true || item['isLeave'] == 1;
+                  int egLevel = int.tryParse(item['endgameLevel'].toString()) ?? 0;
+
+                  int total = (int.tryParse(item['autoBallCount'].toString()) ?? 0) * 1 +
+                      (isLeave ? 3 : 0) +
+                      (isHanging ? 15 : 0) +
+                      (int.tryParse(item['teleopBallCount'].toString()) ?? 0) * 1 +
+                      (egLevel * 10);
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)]
+                    ),
+                    child: CupertinoListTile(
+                      padding: const EdgeInsets.all(12),
+                      title: Text("Match ${item['matchNumber']} - Team ${item['teamNumber']}",
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Scout: ${item['user']} (${item['position']})"),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 5,
+                            runSpacing: 5,
+                            children: [
+                              _tag("Auto Fuels: ${item['autoBallCount']}", CupertinoColors.systemYellow),
+                              _tag("Tele Fuels: ${item['teleopBallCount']}", CupertinoColors.systemBlue),
+                              if (isLeave) _tag("Left Zone", CupertinoColors.activeOrange),
+                              if (isHanging) _tag("Auto Hang", CupertinoColors.systemGreen),
+                              if (egLevel > 0) _tag("Endgame L$egLevel", CupertinoColors.systemPurple),
+                            ],
+                          )
+                        ],
+                      ),
+                      additionalInfo: Text("$total pt",
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoColors.activeBlue),
+                      ),
+                      trailing: const Icon(CupertinoIcons.pencil_circle, color: CupertinoColors.systemGrey),
+                      onTap: () => _editReport(index),
+                    ),
+                  );
+                },
               ),
-            );
-          },
+            ),
+          ],
         ),
       ),
     );
