@@ -233,7 +233,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
                 const SizedBox(height: 24),
                 Text("Hi, $_currentUserName", style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-                const Text("Ready for match scouting?", style: TextStyle(color: Colors.black45, fontSize: 15)),
+                const Text("Welcome back!", style: TextStyle(color: Colors.black45, fontSize: 15)),
                 const SizedBox(height: 50),
 
                 _buildMenuButton(
