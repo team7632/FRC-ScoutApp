@@ -238,7 +238,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
                 // Footer Version
                 const Text(
-                  "Version 2.0.0",
+                  "Version 2.0.1",
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w200,

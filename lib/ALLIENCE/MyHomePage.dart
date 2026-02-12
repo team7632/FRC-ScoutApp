@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_application_1/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+// 導入相關頁面
+import '../PIT/pitroom.dart';
+import '../main.dart';
+import '../ALLIENCE/api.dart'; // 確保導入 Api.serverIp
 import 'CreateRoomPage.dart';
 import 'RoomListPage.dart';
 import 'config/personconfig.dart';
@@ -19,6 +25,12 @@ class _MyHomePageState extends State<MyHomePage> {
   String _currentUserName = "Loading...";
   String? _photoUrl;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+
+  String _currentMode = "Scout Mode";
+
+  // --- 色彩定義 ---
+  final Color scoutPurple = const Color(0xFF673AB7);
+  final Color scoutPurpleLight = const Color(0xFFEDE7F6);
 
   @override
   void initState() {
@@ -38,7 +50,57 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  // Material 3 style Account Menu
+  // --- 導航處理：獲取房間列表並進入 Pit Mode ---
+  Future<void> _handleModeChange(String mode) async {
+    if (mode == "Pit Mode") {
+      // 顯示加載動畫，因為抓取房間清單需要時間
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      try {
+        // 從伺服器獲取所有房間名稱
+        final response = await http.get(Uri.parse('${Api.serverIp}/v1/rooms')).timeout(const Duration(seconds: 5));
+
+        if (mounted) Navigator.pop(context); // 關閉加載動畫
+
+        if (response.statusCode == 200) {
+          final List<dynamic> data = jsonDecode(response.body);
+          // 提取房間名稱
+          List<String> roomNames = data.map((r) => r['name'].toString()).toList();
+
+          if (mounted) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PitRoom(
+                  availableRooms: roomNames,
+                  initialRoom: roomNames.isNotEmpty ? roomNames.first : null,
+                ),
+              ),
+            );
+          }
+        } else {
+          _showErrorSnackBar("Failed to load rooms from server");
+        }
+      } catch (e) {
+        if (mounted) Navigator.pop(context); // 關閉加載動畫
+        _showErrorSnackBar("Connection error. Check Server IP.");
+      }
+    } else {
+      setState(() {
+        _currentMode = mode;
+      });
+    }
+  }
+
+  void _showErrorSnackBar(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.redAccent));
+  }
+
+  // --- 帳號選單 ---
   void _showAccountMenu() {
     showModalBottomSheet(
       context: context,
@@ -52,34 +114,26 @@ class _MyHomePageState extends State<MyHomePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // User Info Header
               ListTile(
-                leading: ClipOval(
-                  child: _photoUrl != null
-                      ? Image.network(_photoUrl!, width: 45, height: 45)
-                      : const Icon(Icons.account_circle, size: 45),
+                leading: CircleAvatar(
+                  backgroundImage: _photoUrl != null ? NetworkImage(_photoUrl!) : null,
+                  child: _photoUrl == null ? const Icon(Icons.person) : null,
                 ),
-                title: Text(
-                  _currentUserName,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
-                ),
+                title: Text(_currentUserName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 subtitle: const Text("Logged in"),
               ),
               const Divider(indent: 20, endIndent: 20),
-              // Settings
               ListTile(
-                leading: Image.asset('assets/images/settings_icon.png', width: 24, height: 24, errorBuilder: (context, _, __) => const Icon(Icons.settings)),
-                title: const Text("Profile Settings", style: TextStyle(fontWeight: FontWeight.w400)),
-                trailing: const Icon(Icons.chevron_right, size: 20),
+                leading: Icon(Icons.settings_outlined, color: scoutPurple),
+                title: const Text("Profile Settings"),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonConfigPage()));
                 },
               ),
-              // Logout
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.redAccent),
-                title: const Text("Logout", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w400)),
+                title: const Text("Logout", style: TextStyle(color: Colors.redAccent)),
                 onTap: () {
                   Navigator.pop(context);
                   _handleLogout();
@@ -97,9 +151,8 @@ class _MyHomePageState extends State<MyHomePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("Logout", style: TextStyle(fontWeight: FontWeight.w500)),
-        content: const Text("Are you sure you want to log out and clear all login information?"),
+        title: const Text("Logout"),
+        content: const Text("Are you sure?"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
           TextButton(
@@ -123,9 +176,27 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE), // Soft background
+      backgroundColor: const Color(0xFFFBFBFE),
       appBar: AppBar(
-        title: const Text('7632SCOUT', style: TextStyle(letterSpacing: 1.5, fontSize: 16)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: PopupMenuButton<String>(
+          icon: Icon(Icons.apps_rounded, color: scoutPurple),
+          onSelected: _handleModeChange,
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: "Scout Mode",
+              child: Row(children: [Icon(Icons.assignment_outlined, color: Colors.deepPurple), SizedBox(width: 10), Text("Scout Mode")]),
+            ),
+            const PopupMenuItem(
+              value: "Pit Mode",
+              child: Row(children: [Icon(Icons.build_circle_outlined, color: Colors.blue), SizedBox(width: 10), Text("Pit Mode")]),
+            ),
+          ],
+        ),
+        title: const Text('7632SCOUT',
+            style: TextStyle(letterSpacing: 1.5, fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+        centerTitle: true,
         actions: [
           GestureDetector(
             onTap: _showAccountMenu,
@@ -133,9 +204,9 @@ class _MyHomePageState extends State<MyHomePage> {
               padding: const EdgeInsets.only(right: 16),
               child: CircleAvatar(
                 radius: 16,
-                backgroundColor: Colors.grey[200],
+                backgroundColor: scoutPurple.withOpacity(0.1),
                 backgroundImage: _photoUrl != null ? NetworkImage(_photoUrl!) : null,
-                child: _photoUrl == null ? const Icon(Icons.person, size: 20) : null,
+                child: _photoUrl == null ? Icon(Icons.person, size: 20, color: scoutPurple) : null,
               ),
             ),
           ),
@@ -146,35 +217,29 @@ class _MyHomePageState extends State<MyHomePage> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 40),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Profile Avatar
+                Chip(
+                  label: Text(_currentMode),
+                  backgroundColor: scoutPurpleLight,
+                  side: BorderSide.none,
+                  labelStyle: TextStyle(color: scoutPurple, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 30),
                 CircleAvatar(
                   radius: 45,
-                  backgroundColor: Colors.deepPurple.withOpacity(0.1),
+                  backgroundColor: scoutPurpleLight,
                   backgroundImage: _photoUrl != null ? NetworkImage(_photoUrl!) : null,
-                  child: _photoUrl == null ? const Icon(Icons.person, size: 45, color: Colors.deepPurple) : null,
+                  child: _photoUrl == null ? Icon(Icons.person, size: 45, color: scoutPurple) : null,
                 ),
                 const SizedBox(height: 24),
-                Text(
-                  "Hi, $_currentUserName",
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w500,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const Text(
-                  "Welcome back!",
-                  style: TextStyle(color: Colors.black45, fontSize: 15, fontWeight: FontWeight.w300),
-                ),
-                const SizedBox(height: 60),
+                Text("Hi, $_currentUserName", style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+                const Text("Ready for match scouting?", style: TextStyle(color: Colors.black45, fontSize: 15)),
+                const SizedBox(height: 50),
 
-                // Main Menu Options
                 _buildMenuButton(
                   icon: Icons.add_rounded,
                   label: "Create Room",
-                  color: Colors.deepPurple,
+                  color: scoutPurple,
                   isFilled: true,
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateRoomPage())),
                 ),
@@ -182,14 +247,14 @@ class _MyHomePageState extends State<MyHomePage> {
                 _buildMenuButton(
                   icon: Icons.storage_rounded,
                   label: "View Rooms from Server",
-                  color: Colors.deepPurple,
+                  color: scoutPurple,
                   isFilled: false,
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const RoomListPage())),
                 ),
                 const SizedBox(height: 16),
                 _buildMenuButton(
                   icon: Icons.cloud_download_outlined,
-                  label: "Fetch from The Blue Alliance",
+                  label: "Fetch from TBA",
                   color: Colors.blueAccent,
                   isFilled: false,
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GetFromTheBlueAlliance())),
@@ -202,8 +267,13 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  // Reusable Menu Button Component
-  Widget _buildMenuButton({required IconData icon, required String label, required Color color, required bool isFilled, required VoidCallback onTap}) {
+  Widget _buildMenuButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required bool isFilled,
+    required VoidCallback onTap
+  }) {
     return SizedBox(
       width: double.infinity,
       height: 56,
@@ -215,8 +285,8 @@ class _MyHomePageState extends State<MyHomePage> {
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           foregroundColor: Colors.white,
-          elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+          elevation: 0,
         ),
       )
           : OutlinedButton.icon(

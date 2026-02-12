@@ -4,9 +4,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../PIT/pitcheckpage.dart';
 import 'api.dart';
 
-// --- 同步：歸一化路徑繪製器 ---
+// --- 自定義畫布：用於在排行榜中預覽自動化路徑 ---
 class PathPainter extends CustomPainter {
   final List<Offset?> normalizedPoints;
   final Color color;
@@ -17,23 +18,17 @@ class PathPainter extends CustomPainter {
     Paint paint = Paint()
       ..color = color
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = 2.5; // 歷史路徑預覽稍微細一點更精緻
+      ..strokeWidth = 3.0;
 
     for (int i = 0; i < normalizedPoints.length - 1; i++) {
       if (normalizedPoints[i] != null && normalizedPoints[i + 1] != null) {
-        // 重要：將 0.0~1.0 的比例乘以目前 Canvas 的實際尺寸
-        Offset start = Offset(
-          normalizedPoints[i]!.dx * size.width,
-          normalizedPoints[i]!.dy * size.height,
-        );
-        Offset end = Offset(
-          normalizedPoints[i + 1]!.dx * size.width,
-          normalizedPoints[i + 1]!.dy * size.height,
-        );
+        Offset start = Offset(normalizedPoints[i]!.dx * size.width, normalizedPoints[i]!.dy * size.height);
+        Offset end = Offset(normalizedPoints[i + 1]!.dx * size.width, normalizedPoints[i + 1]!.dy * size.height);
         canvas.drawLine(start, end, paint);
       }
     }
   }
+
   @override
   bool shouldRepaint(PathPainter oldDelegate) => true;
 }
@@ -47,150 +42,249 @@ class AllTotalPage extends StatefulWidget {
 }
 
 class _AllTotalPageState extends State<AllTotalPage> {
-  List<dynamic> _reports = [];
+  List<dynamic> _allRegisteredTeams = []; // ⭐ 來自新 API: /v1/rooms/teams
+  List<dynamic> _reports = [];           // 來自 API: /v1/rooms/all-reports
   bool _isLoading = true;
-  final String serverIp = Api.serverIp;
-  final Color primaryPurple = const Color(0xFF673AB7);
+
+  // 顏色風格設定
+  final Color brandPurple = const Color(0xFF673AB7);
+  final Color accentBlue = const Color(0xFF1A73E8);
 
   @override
   void initState() {
     super.initState();
-    _fetchTotalData();
+    _fetchInitialData();
   }
 
-  Future<void> _fetchTotalData() async {
+  // ⭐ 核心同步：抓取名單與報告
+  Future<void> _fetchInitialData() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$serverIp/v1/rooms/all-reports?roomName=${widget.roomName}'),
-      ).timeout(const Duration(seconds: 5));
+      // 1. 抓取 AdminConfig 設定的所有隊伍
+      final teamsRes = await http.get(Uri.parse('${Api.serverIp}/v1/rooms/teams?roomName=${widget.roomName}'));
+      // 2. 抓取所有已提交的比賽報告
+      final reportsRes = await http.get(Uri.parse('${Api.serverIp}/v1/rooms/all-reports?roomName=${widget.roomName}'));
 
-      if (response.statusCode == 200) {
-        if (mounted) {
-          setState(() {
-            _reports = jsonDecode(response.body);
-            _isLoading = false;
-          });
-        }
+      if (mounted) {
+        setState(() {
+          _allRegisteredTeams = teamsRes.statusCode == 200 ? jsonDecode(teamsRes.body) : [];
+          _reports = reportsRes.statusCode == 200 ? jsonDecode(reportsRes.body) : [];
+          _isLoading = false;
+        });
       }
     } catch (e) {
+      debugPrint("Fetch Error: $e");
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // --- 數據處理：同步 Depot 與 歸一化座標 ---
-  List<Map<String, dynamic>> _processTeamData() {
+  // ⭐ 計分權重同步：Fuel 皆為 1 分
+  Map<String, double> _calculateScores(dynamic r) {
+    // 根據你的需求：Fuel 權重為 1
+    double autoFuel = (double.tryParse(r['autoBallCount']?.toString() ?? "0") ?? 0) * 1.0;
+    double teleFuel = (double.tryParse(r['teleopBallCount']?.toString() ?? "0") ?? 0) * 1.0;
+
+    // 其他加分項 (與後端 calculateScore 同步)
+    double leave = (r['isLeave'] == true || r['isLeave'] == 1) ? 3.0 : 0.0;
+    double hang = (r['isAutoHanging'] == true || r['isAutoHanging'] == 1) ? 15.0 : 0.0;
+    double end = (double.tryParse(r['endgameLevel']?.toString() ?? "0") ?? 0) * 10.0;
+
+    return {
+      'auto': autoFuel + leave + hang,
+      'tele': teleFuel + end,
+      'total': autoFuel + leave + hang + teleFuel + end
+    };
+  }
+
+  List<Map<String, dynamic>> _processData() {
     Map<String, Map<String, dynamic>> teamStats = {};
+
+    // 1. 先用 AdminConfig 的隊伍名單初始化 (確保沒數據的隊伍也會顯示)
+    for (var team in _allRegisteredTeams) {
+      String teamNum = team['teamNumber'].toString();
+      teamStats[teamNum] = {
+        'teamNumber': teamNum,
+        'sumTotal': 0.0,
+        'matchCount': 0,
+        'isScouted': false,
+        'pathDataList': <Map<String, dynamic>>[],
+      };
+    }
+
+    // 2. 疊加偵察報告數據
     for (var report in _reports) {
       String teamNum = report['teamNumber'].toString();
-      int autoBalls = int.tryParse(report['autoBallCount'].toString()) ?? 0;
-      int teleopBalls = int.tryParse(report['teleopBallCount'].toString()) ?? 0;
-      bool isHanging = report['isAutoHanging'] == true || report['isAutoHanging'] == 1;
-      bool isLeave = report['isLeave'] == true || report['isLeave'] == 1;
-      int endgameLevel = int.tryParse(report['endgameLevel'].toString()) ?? 0;
+      if (!teamStats.containsKey(teamNum)) continue; // 忽略未註冊隊伍
 
-      // 取得歸一化點
-      List<dynamic>? pathPointsJson = report['autoPathPoints'];
+      var scores = _calculateScores(report);
+      var s = teamStats[teamNum]!;
 
-      double autoScore = (autoBalls * 1.0) + (isHanging ? 15.0 : 0.0) + (isLeave ? 3.0 : 0.0);
-      double teleopScore = (teleopBalls * 1.0) + (endgameLevel * 10.0);
+      s['sumTotal'] += scores['total']!;
+      s['matchCount'] += 1;
+      s['isScouted'] = true;
 
-      if (!teamStats.containsKey(teamNum)) {
-        teamStats[teamNum] = {
-          'teamNumber': teamNum,
-          'sumTotal': 0.0,
-          'sumAutoBalls': 0,
-          'sumTeleopBalls': 0,
-          'matchCount': 0,
-          'maxEndgameLevel': 0,
-          'pathDataList': <Map<String, dynamic>>[],
-        };
-      }
-
-      var stats = teamStats[teamNum]!;
-      stats['sumTotal'] += (autoScore + teleopScore);
-      stats['sumAutoBalls'] += autoBalls;
-      stats['sumTeleopBalls'] += teleopBalls;
-      stats['matchCount'] += 1;
-      if (endgameLevel > stats['maxEndgameLevel']) stats['maxEndgameLevel'] = endgameLevel;
-
-      if (pathPointsJson != null && pathPointsJson.isNotEmpty) {
-        (stats['pathDataList'] as List).add({
+      // 如果有路徑數據則加入
+      if (report['autoPathPoints'] != null && (report['autoPathPoints'] as List).isNotEmpty) {
+        (s['pathDataList'] as List).add({
           'match': report['matchNumber'].toString(),
-          'depot': report['depot'] ?? "Unknown", // 同步 Depot 資訊
-          'points': _convertToOffsets(pathPointsJson),
+          'points': _convertToOffsets(report['autoPathPoints']),
         });
       }
     }
-    return teamStats.values.map((team) {
-      team['avgTotal'] = team['sumTotal'] / team['matchCount'];
-      return team;
+
+    // 3. 計算平均分並排序 (由高到低)
+    return teamStats.values.map((t) {
+      t['avgTotal'] = t['matchCount'] > 0 ? t['sumTotal'] / t['matchCount'] : 0.0;
+      return t;
     }).toList()..sort((a, b) => b['avgTotal'].compareTo(a['avgTotal']));
   }
 
   List<Offset?> _convertToOffsets(List<dynamic> jsonList) {
     return jsonList.map((item) {
       if (item == null) return null;
-      return Offset(
-          double.parse(item['x'].toString()),
-          double.parse(item['y'].toString())
-      );
+      return Offset(double.parse(item['x'].toString()), double.parse(item['y'].toString()));
     }).toList();
   }
 
-  // --- UI: 同步不歪斜的路徑預覽 ---
-  Widget _buildPathPreview(List<Offset?> normalizedPoints) {
-    return AspectRatio(
-      aspectRatio: 16 / 9,
-      child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Stack(
-                  children: [
-                    // 同步：使用 BoxFit.fill 配合歸一化座標
-                    Image.asset(
-                        'assets/images/field2026.png',
-                        fit: BoxFit.fill,
-                        width: double.infinity,
-                        height: double.infinity
-                    ),
-                    CustomPaint(
-                      painter: PathPainter(normalizedPoints, primaryPurple),
-                      size: Size(constraints.maxWidth, constraints.maxHeight),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
+  @override
+  Widget build(BuildContext context) {
+    final leaderboard = _processData();
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FE),
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        title: Text("Leaderboard: ${widget.roomName}",
+            style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.download_rounded, color: brandPurple),
+            onPressed: _handleExport,
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+        onRefresh: _fetchInitialData,
+        child: ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: leaderboard.length,
+          itemBuilder: (context, index) => _buildTeamCard(leaderboard[index], index + 1),
+        ),
       ),
     );
   }
 
+  Widget _buildTeamCard(Map<String, dynamic> team, int rank) {
+    bool isScouted = team['isScouted'];
+    bool hasPaths = (team['pathDataList'] as List).isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 4))
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Column(
+          children: [
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              leading: _buildRankBadge(rank, isScouted),
+              title: Text("Team ${team['teamNumber']}",
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              subtitle: Text(isScouted ? "Matches: ${team['matchCount']}" : "No data yet"),
+              trailing: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(team['avgTotal'].toStringAsFixed(1),
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: brandPurple)),
+                  const Text("AVG", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: isScouted ? Colors.white : Colors.grey[50],
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextButton.icon(
+                      onPressed: hasPaths ? () => _showPathGallery(team['teamNumber'], team['pathDataList']) : null,
+                      icon: const Icon(Icons.auto_graph, size: 18),
+                      label: Text("Auto Paths (${(team['pathDataList'] as List).length})"),
+                      style: TextButton.styleFrom(foregroundColor: brandPurple),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => PitCheckPage(teamNumber: team['teamNumber'], roomName: widget.roomName)
+                        ),
+                      ).then((_) => _fetchInitialData());
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: brandPurple,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text("Pit Details"),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRankBadge(int rank, bool isScouted) {
+    return Container(
+      width: 35, height: 35,
+      decoration: BoxDecoration(
+        color: isScouted ? brandPurple.withOpacity(0.1) : Colors.grey[200],
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text("$rank",
+          style: TextStyle(fontWeight: FontWeight.bold, color: isScouted ? brandPurple : Colors.grey)),
+    );
+  }
+
+  // 顯示該隊伍所有比賽的自動化路徑軌跡
   void _showPathGallery(String teamNum, List<dynamic> pathList) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
+        height: MediaQuery.of(context).size.height * 0.75,
         decoration: const BoxDecoration(
-          color: Color(0xFF1C1B1F),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
         ),
         child: Column(
           children: [
-            Container(margin: const EdgeInsets.symmetric(vertical: 12), width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 12),
+            Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))),
             Padding(
               padding: const EdgeInsets.all(20),
-              child: Text("Team $teamNum - Strategy Map", style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+              child: Text("Team $teamNum - Strategy Map", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             ),
             Expanded(
               child: ListView.builder(
@@ -198,31 +292,26 @@ class _AllTotalPageState extends State<AllTotalPage> {
                 itemCount: pathList.length,
                 itemBuilder: (context, index) {
                   final item = pathList[index];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 20),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        ListTile(title: Text("Match ${item['match']}"), dense: true),
+                        AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: Stack(
                             children: [
-                              Icon(Icons.adjust, color: primaryPurple, size: 16),
-                              const SizedBox(width: 8),
-                              Text("Match ${item['match']}", style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                              Image.asset('assets/images/field2026.png', fit: BoxFit.cover),
+                              CustomPaint(
+                                painter: PathPainter(item['points'] as List<Offset?>, brandPurple),
+                                size: Size.infinite,
+                              ),
                             ],
                           ),
-                          // 顯示出發位置
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(4)),
-                            child: Text("Depot: ${item['depot']}", style: const TextStyle(color: Colors.white54, fontSize: 10)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      _buildPathPreview(item['points'] as List<Offset?>),
-                      const SizedBox(height: 30),
-                    ],
+                        ),
+                      ],
+                    ),
                   );
                 },
               ),
@@ -233,118 +322,21 @@ class _AllTotalPageState extends State<AllTotalPage> {
     );
   }
 
-  Widget _buildTeamCard(Map<String, dynamic> team, int rank) {
-    bool hasPaths = (team['pathDataList'] as List).isNotEmpty;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                _buildRankBadge(rank),
-                const SizedBox(width: 16),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text("TEAM", style: TextStyle(fontSize: 10, color: Colors.black38)),
-                  Text(team['teamNumber'], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                ])),
-                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text(team['avgTotal'].toStringAsFixed(1), style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: primaryPurple)),
-                  const Text("AVG PTS", style: TextStyle(fontSize: 9, color: Colors.black38)),
-                ]),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  _buildStatBox("Matches", "${team['matchCount']}"),
-                  _buildStatBox("Avg Auto", "${(team['sumAutoBalls']/team['matchCount']).toStringAsFixed(1)}"),
-                  _buildStatBox("Avg Tele", "${(team['sumTeleopBalls']/team['matchCount']).toStringAsFixed(1)}"),
-                  _buildStatBox("Max End", "L${team['maxEndgameLevel']}"),
-                ]),
-                const SizedBox(height: 16),
-                Row(children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: hasPaths ? () => _showPathGallery(team['teamNumber'], team['pathDataList']) : null,
-                      icon: Icon(Icons.map_outlined, size: 16, color: hasPaths ? Colors.white : Colors.grey),
-                      label: Text(hasPaths ? "Tactical Analysis (${(team['pathDataList'] as List).length})" : "No Path Data"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: hasPaths ? primaryPurple : Colors.grey.shade200,
-                        foregroundColor: hasPaths ? Colors.white : Colors.grey,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ]),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --- 輔助元件 ---
-  Widget _buildRankBadge(int rank) => Container(width: 36, height: 36, decoration: BoxDecoration(color: rank <= 3 ? primaryPurple.withOpacity(0.1) : Colors.grey.shade100, shape: BoxShape.circle), alignment: Alignment.center, child: Text("#$rank", style: TextStyle(fontWeight: FontWeight.bold, color: rank <= 3 ? primaryPurple : Colors.black45)));
-  Widget _buildStatBox(String label, String value) => Column(children: [Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)), Text(label, style: const TextStyle(fontSize: 10, color: Colors.black38))]);
-  Widget _buildEmptyState() => const Center(child: Text("No data yet"));
-  void _showErrorSnackBar(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-
-  Future<void> _exportXlsx(dynamic _) async {
-    setState(() => _isLoading = true);
+  // 呼叫後端 Excel 導出
+  Future<void> _handleExport() async {
     try {
-      final url = Uri.parse('$serverIp/v1/rooms/export-excel?roomName=${widget.roomName}');
+      final url = Uri.parse('${Api.serverIp}/v1/rooms/export-excel?roomName=${widget.roomName}');
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        final directory = await getTemporaryDirectory();
-        final filePath = '${directory.path}/${widget.roomName}_Ranking.xlsx';
-        final file = File(filePath);
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}/Scouting_${widget.roomName}.xlsx');
         await file.writeAsBytes(response.bodyBytes);
-        await Share.shareXFiles([XFile(filePath)], text: 'FRC Ranking - ${widget.roomName}');
+        await Share.shareXFiles([XFile(file.path)], text: 'Exported Scouting Data');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No data to export")));
       }
     } catch (e) {
-      _showErrorSnackBar("Export failed");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      debugPrint("Export Error: $e");
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final groupedData = _processTeamData();
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE),
-      appBar: AppBar(
-        title: Text("${widget.roomName} Ranking", style: const TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(icon: const Icon(Icons.share_outlined), onPressed: groupedData.isEmpty ? null : () => _exportXlsx(groupedData)),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : groupedData.isEmpty
-          ? _buildEmptyState()
-          : RefreshIndicator(
-        onRefresh: _fetchTotalData,
-        child: ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: groupedData.length,
-          itemBuilder: (context, index) => _buildTeamCard(groupedData[index], index + 1),
-        ),
-      ),
-    );
   }
 }

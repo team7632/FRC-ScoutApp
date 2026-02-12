@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'api.dart';
-import 'startscout.dart'; // 確保路徑正確
+import 'startscout.dart';
 
 class RatingPage extends StatefulWidget {
   final String roomName;
