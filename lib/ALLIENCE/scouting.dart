@@ -26,27 +26,23 @@ class ScoutingPage extends StatefulWidget {
 }
 
 class _ScoutingPageState extends State<ScoutingPage> {
-  int _autoBalls = 0,
-      _teleBalls = 0;
-  bool _isLeave = false,
-      _isHanging = false;
+  // --- Data States ---
+  int _autoBalls = 0, _teleBalls = 0;
+  bool _isLeave = false, _isHanging = false;
   int _endgameLevel = 0;
-  int _autoBump = 0,
-      _autoTrench = 0,
-      _autoDepot = 0,
-      _autoOutpost = 0;
-  int _teleBump = 0,
-      _teleTrench = 0,
-      _teleDepot = 0,
-      _teleOutpost = 0;
 
+  // Tactical Counters
+  int _autoBump = 0, _autoTrench = 0, _autoDepot = 0, _autoOutpost = 0;
+  int _teleBump = 0, _teleTrench = 0, _teleDepot = 0, _teleOutpost = 0;
+
+  // --- Canvas States ---
   final List<Offset?> _points = [];
   final GlobalKey _canvasKey = GlobalKey();
+  bool _isCanvasLocked = true; // Controls scroll locking and drawing
   final Color primaryPurple = const Color(0xFF673AB7);
 
   Future<void> _submitReport() async {
-    final RenderBox? renderBox = _canvasKey.currentContext
-        ?.findRenderObject() as RenderBox?;
+    final RenderBox? renderBox = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
     final Size size = renderBox?.size ?? const Size(1, 1);
 
     List<Map<String, dynamic>?> normalizedPoints = _points.map((p) {
@@ -90,14 +86,12 @@ class _ScoutingPageState extends State<ScoutingPage> {
         final responseData = jsonDecode(response.body);
         final int reportIndex = responseData['index'] ?? 0;
 
-        // 跳轉到評價頁，不再 pop
         Navigator.push(context, MaterialPageRoute(
-          builder: (context) =>
-              RatingPage(
-                roomName: widget.roomName,
-                reportData: payload,
-                reportIndex: reportIndex,
-              ),
+          builder: (context) => RatingPage(
+            roomName: widget.roomName,
+            reportData: payload,
+            reportIndex: reportIndex,
+          ),
         ));
       }
     } catch (e) {
@@ -110,61 +104,55 @@ class _ScoutingPageState extends State<ScoutingPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF2F2F7),
       appBar: AppBar(
-          title: Text("M${widget.matchNumber} - T${widget.teamNumber}")),
+        title: Text("M${widget.matchNumber} - T${widget.teamNumber}"),
+      ),
+      // --- Scroll Logic: Disable physics when drawing ---
       body: SingleChildScrollView(
+        physics: _isCanvasLocked
+            ? const AlwaysScrollableScrollPhysics()
+            : const NeverScrollableScrollPhysics(),
         child: Column(
           children: [
             _buildSection("AUTONOMOUS", Colors.orange, [
-              _counterRow("Auto Fuels", _autoBalls, (v) =>
-                  setState(() => _autoBalls = v)),
+              _counterRow("Auto Fuel", _autoBalls, (v) => setState(() => _autoBalls = v)),
               const Divider(height: 32),
               _tacticalGrid([
-                _smallCounter(
-                    "BUMP", _autoBump, (v) => setState(() => _autoBump = v)),
-                _smallCounter("TRENCH", _autoTrench, (v) =>
-                    setState(() => _autoTrench = v)),
-                _smallCounter(
-                    "DEPOT", _autoDepot, (v) => setState(() => _autoDepot = v)),
-                _smallCounter("OUTPOST", _autoOutpost, (v) =>
-                    setState(() => _autoOutpost = v)),
+                _smallCounter("BUMP", _autoBump, (v) => setState(() => _autoBump = v)),
+                _smallCounter("TRENCH", _autoTrench, (v) => setState(() => _autoTrench = v)),
+                _smallCounter("DEPOT", _autoDepot, (v) => setState(() => _autoDepot = v)),
+                _smallCounter("OUTPOST", _autoOutpost, (v) => setState(() => _autoOutpost = v)),
               ]),
               const SizedBox(height: 16),
               Row(children: [
-                Expanded(child: _toggleChip(
-                    "Leave", _isLeave, (v) => setState(() => _isLeave = v))),
+                Expanded(child: _toggleChip("Leave", _isLeave, (v) => setState(() => _isLeave = v))),
                 const SizedBox(width: 8),
-                Expanded(child: _toggleChip(
-                    "Hang", _isHanging, (v) => setState(() => _isHanging = v))),
+                Expanded(child: _toggleChip("Hang", _isHanging, (v) => setState(() => _isHanging = v))),
               ]),
               _buildCanvas(),
             ]),
             _buildSection("TELEOP", Colors.blue, [
-              _counterRow("Tele Fuels", _teleBalls, (v) =>
-                  setState(() => _teleBalls = v)),
+              _counterRow("Tele Fuel", _teleBalls, (v) => setState(() => _teleBalls = v)),
               const Divider(height: 32),
               _tacticalGrid([
-                _smallCounter(
-                    "BUMP", _teleBump, (v) => setState(() => _teleBump = v)),
-                _smallCounter("TRENCH", _teleTrench, (v) =>
-                    setState(() => _teleTrench = v)),
-                _smallCounter(
-                    "DEPOT", _teleDepot, (v) => setState(() => _teleDepot = v)),
-                _smallCounter("OUTPOST", _teleOutpost, (v) =>
-                    setState(() => _teleOutpost = v)),
+                _smallCounter("BUMP", _teleBump, (v) => setState(() => _teleBump = v)),
+                _smallCounter("TRENCH", _teleTrench, (v) => setState(() => _teleTrench = v)),
+                _smallCounter("DEPOT", _teleDepot, (v) => setState(() => _teleDepot = v)),
+                _smallCounter("OUTPOST", _teleOutpost, (v) => setState(() => _teleOutpost = v)),
               ]),
-              const Center(child: Text("Endgame Level",
-                  style: TextStyle(fontWeight: FontWeight.bold))),
+              const Center(child: Text("Endgame Level", style: TextStyle(fontWeight: FontWeight.bold))),
+              const SizedBox(height: 8),
               _buildEndgamePicker(),
             ]),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
               child: ElevatedButton(
                 onPressed: _submitReport,
-                style: ElevatedButton.styleFrom(backgroundColor: primaryPurple,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 60)),
-                child: const Text("SUBMIT DATA", style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryPurple,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 60),
+                ),
+                child: const Text("SUBMIT DATA", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -172,9 +160,6 @@ class _ScoutingPageState extends State<ScoutingPage> {
       ),
     );
   }
-
-  // --- 繪圖與 UI 組件 (已修復溢出與手勢) ---
-  bool _isCanvasLocked = true; // 在 State 中新增此變數，預設鎖定
 
   Widget _buildCanvas() {
     return Column(
@@ -186,21 +171,17 @@ class _ScoutingPageState extends State<ScoutingPage> {
             const Text("AUTO PATH", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
             Row(
               children: [
-                // 鎖定/解鎖按鈕
                 TextButton.icon(
                   onPressed: () => setState(() => _isCanvasLocked = !_isCanvasLocked),
                   icon: Icon(_isCanvasLocked ? Icons.lock_outline : Icons.lock_open, size: 18),
-                  label: Text(_isCanvasLocked ? "chick" : "drawing..."),
+                  label: Text(_isCanvasLocked ? "Unlock to Draw" : "Lock to Scroll"),
                   style: TextButton.styleFrom(
                     foregroundColor: _isCanvasLocked ? Colors.grey : primaryPurple,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
                   ),
                 ),
-                // 清除按鈕
                 IconButton(
                   icon: const Icon(Icons.refresh, size: 20),
                   onPressed: _isCanvasLocked ? null : () => setState(() => _points.clear()),
-                  tooltip: "Clear",
                 ),
               ],
             ),
@@ -217,7 +198,6 @@ class _ScoutingPageState extends State<ScoutingPage> {
               borderRadius: BorderRadius.circular(12),
               child: Stack(
                 children: [
-                  // 浮水印/遮罩：鎖定時變暗
                   Image.asset(
                     'assets/images/field2026.png',
                     fit: BoxFit.cover,
@@ -226,20 +206,10 @@ class _ScoutingPageState extends State<ScoutingPage> {
                     colorBlendMode: BlendMode.modulate,
                   ),
                   Positioned.fill(
-                    child: Listener(
-                      behavior: HitTestBehavior.opaque,
-                      onPointerDown: (e) {
-                        if (_isCanvasLocked) return; // 鎖定時不准畫
-                        setState(() => _points.add(e.localPosition));
-                      },
-                      onPointerMove: (e) {
-                        if (_isCanvasLocked) return;
-                        setState(() => _points.add(e.localPosition));
-                      },
-                      onPointerUp: (e) {
-                        if (_isCanvasLocked) return;
-                        setState(() => _points.add(null));
-                      },
+                    child: GestureDetector(
+                      onPanStart: _isCanvasLocked ? null : (details) => setState(() => _points.add(details.localPosition)),
+                      onPanUpdate: _isCanvasLocked ? null : (details) => setState(() => _points.add(details.localPosition)),
+                      onPanEnd: _isCanvasLocked ? null : (details) => setState(() => _points.add(null)),
                       child: CustomPaint(
                         key: _canvasKey,
                         painter: ScoutingPainter(_points, primaryPurple),
@@ -247,14 +217,13 @@ class _ScoutingPageState extends State<ScoutingPage> {
                       ),
                     ),
                   ),
-
                   if (_isCanvasLocked)
                     const Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.touch_app, color: Colors.grey, size: 30),
-                          Text("Lock in first", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                          Text("Tap 'Unlock' to Draw Path", style: TextStyle(color: Colors.grey, fontSize: 12)),
                         ],
                       ),
                     ),
@@ -266,6 +235,8 @@ class _ScoutingPageState extends State<ScoutingPage> {
       ],
     );
   }
+
+  // --- UI Components ---
   Widget _quickAddBtn(String label, Color color, VoidCallback? onTap) {
     return OutlinedButton(
       onPressed: onTap,
@@ -274,7 +245,6 @@ class _ScoutingPageState extends State<ScoutingPage> {
         side: BorderSide(color: color.withOpacity(0.4)),
         padding: const EdgeInsets.symmetric(vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        backgroundColor: onTap == null ? Colors.grey.shade100 : Colors.white,
       ),
       child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
     );
@@ -284,100 +254,59 @@ class _ScoutingPageState extends State<ScoutingPage> {
       Column(children: [
         Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          IconButton(padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              icon: const Icon(Icons.remove, size: 18),
-              onPressed: value > 0 ? () => onChanged(value - 1) : null),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text("$value", style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.bold))),
-          IconButton(padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              icon: const Icon(Icons.add, size: 18, color: Colors.blue),
-              onPressed: () => onChanged(value + 1)),
+          IconButton(icon: const Icon(Icons.remove, size: 18), onPressed: value > 0 ? () => onChanged(value - 1) : null),
+          Text("$value", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          IconButton(icon: const Icon(Icons.add, size: 18, color: Colors.blue), onPressed: () => onChanged(value + 1)),
         ]),
       ]);
 
   Widget _tacticalGrid(List<Widget> children) =>
-      GridView.count(shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          childAspectRatio: 2.2,
-          children: children);
+      GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, childAspectRatio: 2.2, children: children);
 
   Widget _buildSection(String t, Color c, List<Widget> ch) =>
-      Container(margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-              color: Colors.white, borderRadius: BorderRadius.circular(20)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                    t, style: TextStyle(color: c, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-                ...ch
-              ]));
+      Container(margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t, style: TextStyle(color: c, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16), ...ch
+          ]));
 
   Widget _counterRow(String label, int value, Function(int) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text("$value", style: TextStyle(fontSize: 32, color: primaryPurple, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            // 減法按鈕（設為紅色系區分）
-            _quickAddBtn("-1", Colors.redAccent, value > 0 ? () => onChanged(value - 1) : null),
-            const SizedBox(width: 8),
-            // 加法按鈕群
-            Expanded(child: _quickAddBtn("+1", Colors.green, () => onChanged(value + 1))),
-            const SizedBox(width: 4),
-            Expanded(child: _quickAddBtn("+5", Colors.green, () => onChanged(value + 5))),
-            const SizedBox(width: 4),
-            Expanded(child: _quickAddBtn("+10", Colors.green, () => onChanged(value + 10))),
-          ],
-        ),
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text("$value", style: TextStyle(fontSize: 32, color: primaryPurple, fontWeight: FontWeight.bold)),
+      ]),
+      const SizedBox(height: 12),
+      Row(children: [
+        _quickAddBtn("-1", Colors.redAccent, value > 0 ? () => onChanged(value - 1) : null),
+        const SizedBox(width: 8),
+        Expanded(child: _quickAddBtn("+1", Colors.green, () => onChanged(value + 1))),
+        const SizedBox(width: 4),
+        Expanded(child: _quickAddBtn("+5", Colors.green, () => onChanged(value + 5))),
+        const SizedBox(width: 4),
+        Expanded(child: _quickAddBtn("+10", Colors.green, () => onChanged(value + 10))),
+      ]),
+    ]);
+  }
+
+  Widget _toggleChip(String l, bool a, Function(bool) o) => FilterChip(label: Text(l), selected: a, onSelected: o);
+
+  Widget _buildEndgamePicker() => SizedBox(width: double.infinity,
+    child: SegmentedButton<int>(
+      style: SegmentedButton.styleFrom(visualDensity: VisualDensity.comfortable, padding: const EdgeInsets.symmetric(vertical: 8)),
+      segments: const [
+        ButtonSegment(value: 0, label: Text("None", style: TextStyle(fontSize: 12))),
+        ButtonSegment(value: 1, label: Text("L1", style: TextStyle(fontSize: 12))),
+        ButtonSegment(value: 2, label: Text("L2", style: TextStyle(fontSize: 12))),
+        ButtonSegment(value: 3, label: Text("L3", style: TextStyle(fontSize: 12))),
       ],
-    );
-   }
-
-  Widget _stepBtn(String l, Color c, VoidCallback? t) =>
-      OutlinedButton(onPressed: t, child: Text(l));
-
-  Widget _toggleChip(String l, bool a, Function(bool) o) =>
-      FilterChip(label: Text(l), selected: a, onSelected: o);
-
-  Widget _buildEndgamePicker() =>
-      SizedBox(
-        width: double.infinity, // 讓按鈕組撐滿整行，避免寬度隨文字變動
-        child: SegmentedButton<int>(
-          // 透過 style 讓內部按鈕平分空間
-          style: SegmentedButton.styleFrom(
-            visualDensity: VisualDensity.comfortable,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-          ),
-          segments: const [
-            ButtonSegment(
-                value: 0, label: Text("None", style: TextStyle(fontSize: 12))),
-            ButtonSegment(
-                value: 1, label: Text("L1", style: TextStyle(fontSize: 12))),
-            ButtonSegment(
-                value: 2, label: Text("L2", style: TextStyle(fontSize: 12))),
-            ButtonSegment(
-                value: 3, label: Text("L3", style: TextStyle(fontSize: 12))),
-          ],
-          selected: {_endgameLevel},
-          onSelectionChanged: (set) =>
-              setState(() => _endgameLevel = set.first),
-        ),
-      );
+      selected: {_endgameLevel},
+      onSelectionChanged: (set) => setState(() => _endgameLevel = set.first),
+    ),
+  );
 }
+
 class ScoutingPainter extends CustomPainter {
   final List<Offset?> points; final Color color;
   ScoutingPainter(this.points, this.color);
