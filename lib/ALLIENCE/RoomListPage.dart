@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // 加入震動回饋
 import 'package:http/http.dart' as http;
-import 'package:flutter_application_1/ALLIENCE/startscout.dart'; // Ensure this path is correct
+import 'package:flutter_application_1/ALLIENCE/startscout.dart';
 import 'api.dart';
 
 class RoomListPage extends StatefulWidget {
@@ -12,23 +13,24 @@ class RoomListPage extends StatefulWidget {
 }
 
 class _RoomListPageState extends State<RoomListPage> {
-  final Color _brandPurple = const Color(0xFF673AB7);
+  // --- 色彩定義 (與首頁同步) ---
+  final Color darkBg = const Color(0xFF0F0E13);
+  final Color surfaceDark = const Color(0xFF1C1B21);
+  final Color primaryPurple = const Color(0xFF7E57C2);
+  final Color accentPurple = const Color(0xFFB388FF);
 
   // Data Storage
-  List<dynamic> _allRooms = [];      // Original data from server
-  List<dynamic> _filteredRooms = []; // Data after search filter
+  List<dynamic> _allRooms = [];
+  List<dynamic> _filteredRooms = [];
   bool _isLoading = true;
   String _errorMsg = "";
 
-  // Search Controller
   final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadData();
-
-    // Listen for search input changes
     _searchController.addListener(_onSearchChanged);
   }
 
@@ -37,8 +39,6 @@ class _RoomListPageState extends State<RoomListPage> {
     _searchController.dispose();
     super.dispose();
   }
-
-  // --- Logic Handling ---
 
   Future<void> _loadData() async {
     setState(() {
@@ -58,11 +58,11 @@ class _RoomListPageState extends State<RoomListPage> {
           _isLoading = false;
         });
       } else {
-        throw 'Server Error (${response.statusCode})';
+        throw 'Server Error';
       }
     } catch (e) {
       setState(() {
-        _errorMsg = 'Could not connect to server. Please check your network settings.';
+        _errorMsg = 'Connection error. Check your server settings.';
         _isLoading = false;
       });
     }
@@ -79,30 +79,45 @@ class _RoomListPageState extends State<RoomListPage> {
     });
   }
 
-  // --- UI Components ---
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE),
+      backgroundColor: darkBg,
       appBar: AppBar(
-        title: const Text("FRC Room List",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500)),
-        centerTitle: true,
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text("ROOM EXPLORER",
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 2)),
+        centerTitle: true,
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
+          preferredSize: const Size.fromHeight(70),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 15),
             child: _buildSearchBar(),
           ),
         ),
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        color: _brandPurple,
-        child: _buildBody(),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0, -0.8),
+            radius: 1.2,
+            colors: [primaryPurple.withOpacity(0.05), darkBg],
+          ),
+        ),
+        child: RefreshIndicator(
+          onRefresh: () async {
+            HapticFeedback.mediumImpact();
+            await _loadData();
+          },
+          color: accentPurple,
+          backgroundColor: surfaceDark,
+          child: _buildBody(),
+        ),
       ),
     );
   }
@@ -110,23 +125,31 @@ class _RoomListPageState extends State<RoomListPage> {
   Widget _buildSearchBar() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(12),
+        color: surfaceDark,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))
+        ],
       ),
       child: TextField(
         controller: _searchController,
+        style: const TextStyle(color: Colors.white),
         decoration: InputDecoration(
-          hintText: "Search room name or owner...",
-          hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
-          prefixIcon: const Icon(Icons.search, size: 20, color: Colors.grey),
+          hintText: "Search by room or owner...",
+          hintStyle: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 14),
+          prefixIcon: Icon(Icons.search_rounded, size: 20, color: accentPurple),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
-            icon: const Icon(Icons.clear, size: 20),
-            onPressed: () => _searchController.clear(),
+            icon: const Icon(Icons.close_rounded, size: 20, color: Colors.white38),
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              _searchController.clear();
+            },
           )
               : null,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          contentPadding: const EdgeInsets.symmetric(vertical: 15),
         ),
       ),
     );
@@ -134,7 +157,7 @@ class _RoomListPageState extends State<RoomListPage> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 3));
+      return Center(child: CircularProgressIndicator(color: accentPurple, strokeWidth: 2));
     }
 
     if (_errorMsg.isNotEmpty) {
@@ -142,15 +165,16 @@ class _RoomListPageState extends State<RoomListPage> {
     }
 
     if (_allRooms.isEmpty) {
-      return _buildEmptyView("No rooms available yet", Icons.inbox_outlined);
+      return _buildEmptyView("No active rooms found", Icons.cloud_off_rounded);
     }
 
     if (_filteredRooms.isEmpty) {
-      return _buildEmptyView("No matching rooms found", Icons.search_off_rounded);
+      return _buildEmptyView("No matches found", Icons.search_off_rounded);
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      physics: const BouncingScrollPhysics(),
       itemCount: _filteredRooms.length,
       itemBuilder: (context, index) => _buildRoomCard(_filteredRooms[index]),
     );
@@ -161,43 +185,53 @@ class _RoomListPageState extends State<RoomListPage> {
     final String ownerName = room['owner'] ?? "Anonymous";
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: surfaceDark,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.03)),
+      ),
       child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           onTap: () async {
-            // Auto-refresh on return to prevent entering deleted rooms
+            HapticFeedback.lightImpact();
             await Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => StartScout(roomName: roomName)),
             );
             _loadData();
           },
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey.withOpacity(0.05)),
-            ),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
             child: Row(
               children: [
                 _buildRoomIcon(),
-                const SizedBox(width: 16),
+                const SizedBox(width: 18),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(roomName,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.black87)),
-                      const SizedBox(height: 4),
-                      Text("Owner: $ownerName",
-                          style: TextStyle(fontSize: 12, color: Colors.grey[500], fontWeight: FontWeight.w300)),
+                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(Icons.person_outline_rounded, size: 12, color: accentPurple.withOpacity(0.7)),
+                          const SizedBox(width: 4),
+                          Text(ownerName,
+                              style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.4), fontWeight: FontWeight.w400)),
+                        ],
+                      ),
                     ],
                   ),
                 ),
-                Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey[300]),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), shape: BoxShape.circle),
+                  child: Icon(Icons.chevron_right_rounded, size: 20, color: Colors.white.withOpacity(0.2)),
+                ),
               ],
             ),
           ),
@@ -208,19 +242,18 @@ class _RoomListPageState extends State<RoomListPage> {
 
   Widget _buildRoomIcon() {
     return Container(
-      width: 48,
-      height: 48,
+      width: 52,
+      height: 52,
       decoration: BoxDecoration(
-        color: _brandPurple.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [primaryPurple.withOpacity(0.2), primaryPurple.withOpacity(0.05)],
+        ),
+        borderRadius: BorderRadius.circular(15),
       ),
       child: Center(
-        child: Image.asset(
-          'assets/images/icon.png',
-          width: 24,
-          height: 24,
-          errorBuilder: (context, _, __) => Icon(Icons.meeting_room_outlined, color: _brandPurple),
-        ),
+        child: Icon(Icons.sensors_rounded, color: accentPurple, size: 26),
       ),
     );
   }
@@ -230,14 +263,18 @@ class _RoomListPageState extends State<RoomListPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.cloud_off_rounded, size: 64, color: Colors.grey[200]),
-          const SizedBox(height: 16),
-          Text(msg, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
+          Icon(Icons.wifi_off_rounded, size: 60, color: Colors.white10),
+          const SizedBox(height: 20),
+          Text(msg, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white38)),
+          const SizedBox(height: 30),
+          ElevatedButton(
             onPressed: _loadData,
-            icon: const Icon(Icons.refresh),
-            label: const Text("Retry"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryPurple,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+            ),
+            child: const Text("Retry Connection", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -249,9 +286,9 @@ class _RoomListPageState extends State<RoomListPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 64, color: Colors.grey[200]),
+          Icon(icon, size: 60, color: Colors.white10),
           const SizedBox(height: 16),
-          Text(text, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w300)),
+          Text(text, style: TextStyle(color: Colors.white.withOpacity(0.2), fontWeight: FontWeight.w500)),
         ],
       ),
     );

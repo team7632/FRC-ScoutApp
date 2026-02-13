@@ -1,4 +1,6 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
@@ -13,6 +15,12 @@ class GetFromTheBlueAlliance extends StatefulWidget {
 }
 
 class _GetFromTheBlueAllianceState extends State<GetFromTheBlueAlliance> {
+  // --- 深色配色方案 ---
+  final Color darkBg = const Color(0xFF0F0E13);
+  final Color surfaceDark = const Color(0xFF1C1B21);
+  final Color accentPurple = const Color(0xFFB388FF); // 2026 代表色
+  final Color accentBlue = const Color(0xFF40C4FF);   // 2025 代表色
+
   List<dynamic> _allEvents = [];
   List<dynamic> _filteredEvents = [];
   bool _isLoading = true;
@@ -24,30 +32,19 @@ class _GetFromTheBlueAllianceState extends State<GetFromTheBlueAlliance> {
     _fetchMultiYearEvents();
   }
 
-  // Fetch events for both 2025 and 2026
   Future<void> _fetchMultiYearEvents() async {
     setState(() => _isLoading = true);
-
     try {
-      // Send both requests simultaneously
       final results = await Future.wait([
-        http.get(Uri.parse('${Api.serverIp}/v1/tba/events/2025')),
-        http.get(Uri.parse('${Api.serverIp}/v1/tba/events/2026')),
+        http.get(Uri.parse('${Api.serverIp}/v1/tba/events/2025'), headers: {"ngrok-skip-browser-warning": "true"}),
+        http.get(Uri.parse('${Api.serverIp}/v1/tba/events/2026'), headers: {"ngrok-skip-browser-warning": "true"}),
       ]).timeout(const Duration(seconds: 15));
 
       List<dynamic> combinedData = [];
-
       for (var response in results) {
-        if (response.statusCode == 200) {
-          combinedData.addAll(jsonDecode(response.body));
-        } else {
-          debugPrint("Failed to fetch year: ${response.statusCode}");
-        }
+        if (response.statusCode == 200) combinedData.addAll(jsonDecode(response.body));
       }
 
-      if (combinedData.isEmpty) throw "Could not retrieve event data";
-
-      // Global sort: Descending by date (latest first)
       combinedData.sort((a, b) => (b['start_date'] ?? "").compareTo(a['start_date'] ?? ""));
 
       if (mounted) {
@@ -58,43 +55,38 @@ class _GetFromTheBlueAllianceState extends State<GetFromTheBlueAlliance> {
         });
       }
     } catch (e) {
-      _handleError("Could not connect to server.\nPlease ensure the backend service is running on the same network.\n$e");
+      _handleError("Connection to TBA service failed.\n$e");
     }
   }
 
   Future<void> _fetchMatchesAndNavigate(dynamic event) async {
     setState(() => _isLoading = true);
-    final eventKey = event['key'];
+    HapticFeedback.mediumImpact();
 
     try {
       final response = await http.get(
-        Uri.parse('${Api.serverIp}/v1/tba/event/$eventKey/matches'),
+        Uri.parse('${Api.serverIp}/v1/tba/event/${event['key']}/matches'),
+        headers: {"ngrok-skip-browser-warning": "true"},
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         List<dynamic> matches = jsonDecode(response.body);
-
-        // Filter for Qualification Matches (qm) only
         matches = matches.where((m) => m['comp_level'] == 'qm').toList();
         matches.sort((a, b) => (a['match_number'] as int).compareTo(b['match_number'] as int));
 
         Map<String, List<String>> allMatchesData = {};
         for (var m in matches) {
-          final matchNum = m['match_number'].toString();
           final alliances = m['alliances'];
-          // Format team keys (remove 'frc' prefix)
           List<String> blue = (alliances['blue']['team_keys'] as List).map((t) => t.toString().replaceFirst('frc', '')).toList();
           List<String> red = (alliances['red']['team_keys'] as List).map((t) => t.toString().replaceFirst('frc', '')).toList();
-
-          // Order: Blue 1, 2, 3, Red 1, 2, 3
-          allMatchesData[matchNum] = [...blue, ...red];
+          allMatchesData[m['match_number'].toString()] = [...blue, ...red];
         }
 
         if (mounted) {
           setState(() => _isLoading = false);
           Navigator.push(
             context,
-            CupertinoPageRoute(
+            MaterialPageRoute(
               builder: (context) => CreateRoomPage(
                 initialRoomName: "${event['year']}_${event['short_name'] ?? event['name']}",
                 allMatchesData: allMatchesData,
@@ -104,31 +96,22 @@ class _GetFromTheBlueAllianceState extends State<GetFromTheBlueAlliance> {
         }
       }
     } catch (e) {
-      _handleError("Failed to fetch match schedule: $e");
+      _handleError("Failed to sync match schedule: $e");
     }
   }
 
   void _handleError(String msg) {
     if (mounted) {
       setState(() => _isLoading = false);
-      showCupertinoDialog(
+      showDialog(
         context: context,
-        builder: (c) => CupertinoAlertDialog(
-          title: const Text("Error"),
-          content: Text(msg),
+        builder: (c) => AlertDialog(
+          backgroundColor: surfaceDark,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24), side: BorderSide(color: Colors.redAccent.withOpacity(0.5))),
+          title: const Text("TBA ERROR", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w900, letterSpacing: 2, fontSize: 14)),
+          content: Text(msg, style: const TextStyle(color: Colors.white70)),
           actions: [
-            CupertinoDialogAction(
-              child: const Text("Retry"),
-              onPressed: () {
-                Navigator.pop(c);
-                _fetchMultiYearEvents();
-              },
-            ),
-            CupertinoDialogAction(
-              isDestructiveAction: true,
-              child: const Text("Cancel"),
-              onPressed: () => Navigator.pop(c),
-            ),
+            TextButton(onPressed: () => Navigator.pop(c), child: const Text("RETRY", style: TextStyle(color: Colors.white))),
           ],
         ),
       );
@@ -141,127 +124,116 @@ class _GetFromTheBlueAllianceState extends State<GetFromTheBlueAlliance> {
         final name = (event['name'] ?? "").toLowerCase();
         final city = (event['city'] ?? "").toLowerCase();
         final year = event['year'].toString();
-        return name.contains(keyword.toLowerCase()) ||
-            city.contains(keyword.toLowerCase()) ||
-            year.contains(keyword);
+        return name.contains(keyword.toLowerCase()) || city.contains(keyword.toLowerCase()) || year.contains(keyword);
       }).toList();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.systemGroupedBackground,
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text("Import TBA Events (2025-2026)"),
+    return Scaffold(
+      backgroundColor: darkBg,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text("SYNC EVENTS", style: TextStyle(letterSpacing: 2, fontWeight: FontWeight.w900, fontSize: 14)),
+        centerTitle: true,
       ),
-      child: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: CupertinoSearchTextField(
-                controller: _searchController,
-                placeholder: "Search Name, City, or Year",
-                onChanged: _runFilter,
-              ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: CupertinoSearchTextField(
+              controller: _searchController,
+              placeholder: "Search Year, City, or Event Name...",
+              style: const TextStyle(color: Colors.white),
+              onChanged: _runFilter,
             ),
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CupertinoActivityIndicator(radius: 15))
-                  : _filteredEvents.isEmpty
-                  ? const Center(child: Text("No matching events found"))
-                  : CustomScrollView(
-                slivers: [
-                  CupertinoSliverRefreshControl(
-                    onRefresh: _fetchMultiYearEvents,
-                  ),
-                  SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                            (context, index) => _buildEventCard(_filteredEvents[index]),
-                        childCount: _filteredEvents.length,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          ),
+          Expanded(
+            child: _isLoading
+                ? Center(child: CupertinoActivityIndicator(color: accentPurple, radius: 12))
+                : ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              itemCount: _filteredEvents.length,
+              itemBuilder: (context, index) => _buildEventCard(_filteredEvents[index]),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildEventCard(dynamic event) {
-    final is2026 = event['year'] == 2026;
-    final themeColor = is2026 ? CupertinoColors.systemPurple : CupertinoColors.activeBlue;
+    final bool is2026 = event['year'] == 2026;
+    final Color yearColor = is2026 ? accentPurple : accentBlue;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-          color: CupertinoColors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: CupertinoColors.systemGrey.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            )
-          ]
+        color: surfaceDark,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
-      child: CupertinoButton(
-        padding: const EdgeInsets.all(16),
-        onPressed: () => _fetchMatchesAndNavigate(event),
-        child: Row(
-          children: [
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                Icon(CupertinoIcons.calendar, color: themeColor.withOpacity(0.2), size: 40),
-                Text(
-                  event['year'].toString().substring(2),
-                  style: TextStyle(color: themeColor, fontWeight: FontWeight.bold, fontSize: 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => _fetchMatchesAndNavigate(event),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 50, height: 50,
+                decoration: BoxDecoration(
+                  color: yearColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              ],
-            ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    event['short_name'] ?? event['name'],
-                    style: const TextStyle(color: CupertinoColors.label, fontWeight: FontWeight.bold, fontSize: 16),
-                    overflow: TextOverflow.ellipsis,
+                child: Center(
+                  child: Text(
+                    event['year'].toString().substring(2),
+                    style: TextStyle(color: yearColor, fontWeight: FontWeight.w900, fontSize: 20),
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: themeColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          event['year'].toString(),
-                          style: TextStyle(color: themeColor, fontSize: 10, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        event['city'] ?? 'Unknown Location',
-                        style: const TextStyle(color: CupertinoColors.secondaryLabel, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
-            ),
-            const Icon(CupertinoIcons.chevron_forward, color: CupertinoColors.systemGrey4, size: 18),
-          ],
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      event['short_name'] ?? event['name'],
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.location_on_outlined, size: 12, color: yearColor.withOpacity(0.6)),
+                        const SizedBox(width: 4),
+                        Text(
+                          event['city'] ?? 'Unknown',
+                          style: const TextStyle(color: Colors.white38, fontSize: 12),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            event['key'].toString().toUpperCase(),
+                            style: const TextStyle(color: Colors.white24, fontSize: 9, fontFamily: 'monospace'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withOpacity(0.1), size: 16),
+            ],
+          ),
         ),
       ),
     );

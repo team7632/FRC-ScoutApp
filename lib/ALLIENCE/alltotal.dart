@@ -1,43 +1,222 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'api.dart';
+import '../PIT/pitcheckpage.dart'; // 請確保路徑正確
+import 'api.dart'; // 請確保 Api.serverIp 定義正確
 
-// --- 同步：歸一化路徑繪製器 ---
-class PathPainter extends CustomPainter {
-  final List<Offset?> normalizedPoints;
-  final Color color;
-  PathPainter(this.normalizedPoints, this.color);
+// --- 1. 高階路徑繪製器：支援 Swerve 模組與邊界保護 ---
+class AdvancedPathPainter extends CustomPainter {
+  final List<dynamic> rawPoints;
+  final double progress;
+  final String drivetrain;
+
+  AdvancedPathPainter({
+    required this.rawPoints,
+    required this.progress,
+    required this.drivetrain,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    Paint paint = Paint()
-      ..color = color
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 2.5; // 歷史路徑預覽稍微細一點更精緻
+    if (rawPoints.isEmpty) return;
 
-    for (int i = 0; i < normalizedPoints.length - 1; i++) {
-      if (normalizedPoints[i] != null && normalizedPoints[i + 1] != null) {
-        // 重要：將 0.0~1.0 的比例乘以目前 Canvas 的實際尺寸
-        Offset start = Offset(
-          normalizedPoints[i]!.dx * size.width,
-          normalizedPoints[i]!.dy * size.height,
-        );
-        Offset end = Offset(
-          normalizedPoints[i + 1]!.dx * size.width,
-          normalizedPoints[i + 1]!.dy * size.height,
-        );
-        canvas.drawLine(start, end, paint);
+    // ✅ 防溢位處理：內縮 12 像素作為安全區
+    const double padding = 12.0;
+    final double drawW = size.width - (padding * 2);
+    final double drawH = size.height - (padding * 2);
+
+    final List<Offset> points = rawPoints.map((p) =>
+        Offset(
+          double.parse(p['x'].toString()) * drawW + padding,
+          double.parse(p['y'].toString()) * drawH + padding,
+        )
+    ).toList();
+
+    // 1. 繪製發光路徑軌跡
+    final linePaint = Paint()
+      ..color = const Color(0xFFB388FF).withOpacity(0.3)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    final Path path = Path();
+    path.moveTo(points[0].dx, points[0].dy);
+    for (int i = 1; i < points.length; i++) {
+      path.lineTo(points[i].dx, points[i].dy);
+    }
+    canvas.drawPath(path, linePaint);
+
+    // 2. 計算並繪製機器人動畫 (Swerve 模擬)
+    int segmentCount = points.length - 1;
+    if (segmentCount > 0) {
+      double totalProgress = progress * segmentCount;
+      int currentIndex = totalProgress.floor();
+      double segmentProgress = totalProgress - currentIndex;
+
+      if (currentIndex < segmentCount) {
+        Offset p1 = points[currentIndex];
+        Offset p2 = points[currentIndex + 1];
+        Offset currentPos = Offset.lerp(p1, p2, segmentProgress)!;
+
+        double h1 = double.parse(rawPoints[currentIndex]['h'].toString());
+        double h2 = double.parse(rawPoints[currentIndex + 1]['h'].toString());
+
+        // 角度插值優化
+        double diff = (h2 - h1) % (2 * math.pi);
+        if (diff > math.pi) diff -= 2 * math.pi;
+        if (diff < -math.pi) diff += 2 * math.pi;
+        double finalRotation = h1 + diff * segmentProgress;
+
+        canvas.save();
+        canvas.translate(currentPos.dx, currentPos.dy);
+        canvas.rotate(finalRotation);
+        _drawSwerveRobotModel(canvas, diff, (p2 - p1));
+        canvas.restore();
+      }
+    }
+
+    // 3. 繪製點位與標籤 (具備邊界感知)
+    for (int i = 0; i < points.length; i++) {
+      final p = rawPoints[i];
+      final pos = points[i];
+      double wait = double.tryParse(p['w']?.toString() ?? "0") ?? 0;
+      String cmd = p['c']?.toString() ?? "";
+
+      canvas.drawCircle(pos, 2.5, Paint()..color = wait > 0 ? Colors.redAccent : const Color(0xFFB388FF));
+
+      if (cmd.isNotEmpty) {
+        _drawSafeTag(canvas, "⚡ $cmd", pos + const Offset(0, -16), Colors.orangeAccent, size);
+      }
+      if (wait > 0) {
+        _drawSafeTag(canvas, "⏱ ${wait}s", pos + const Offset(0, 10), Colors.redAccent, size);
       }
     }
   }
+
+  void _drawSwerveRobotModel(Canvas canvas, double rotVel, Offset velocity) {
+    // 機器人本體 (16x16 在小卡片中較合適)
+    final bodyPaint = Paint()..color = const Color(0xFF7E57C2);
+    canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: 16, height: 16), bodyPaint);
+    canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: 16, height: 16),
+        Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 0.5);
+
+    // 四個 Swerve 模組
+    List<Offset> modules = [const Offset(-6, -6), const Offset(6, -6), const Offset(-6, 6), const Offset(6, 6)];
+    for (var modPos in modules) {
+      Offset tangent = Offset(-modPos.dy, modPos.dx) * (rotVel * 0.5);
+      Offset wheelDir = velocity + tangent;
+
+      canvas.save();
+      canvas.translate(modPos.dx, modPos.dy);
+      canvas.rotate(wheelDir.direction + (math.pi / 2));
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(Rect.fromCenter(center: Offset.zero, width: 3, height: 6), const Radius.circular(1)),
+          Paint()..color = Colors.cyanAccent
+      );
+      canvas.restore();
+    }
+    // 車頭向前的綠色條
+    canvas.drawRect(const Rect.fromLTWH(-8, -8, 16, 2.5), Paint()..color = Colors.greenAccent);
+  }
+
+  void _drawSafeTag(Canvas canvas, String text, Offset position, Color color, Size canvasSize) {
+    final tp = TextPainter(
+        text: TextSpan(text: text, style: const TextStyle(color: Colors.black, fontSize: 7, fontWeight: FontWeight.bold)),
+        textDirection: TextDirection.ltr)..layout();
+
+    double x = position.dx.clamp(tp.width / 2 + 2, canvasSize.width - tp.width / 2 - 2);
+    double y = position.dy.clamp(tp.height / 2 + 2, canvasSize.height - tp.height / 2 - 2);
+    Offset safePos = Offset(x, y);
+
+    canvas.drawRRect(RRect.fromRectAndRadius(
+        Rect.fromCenter(center: safePos, width: tp.width + 4, height: tp.height + 1), const Radius.circular(3)),
+        Paint()..color = color);
+    tp.paint(canvas, safePos - Offset(tp.width / 2, tp.height / 2));
+  }
+
   @override
-  bool shouldRepaint(PathPainter oldDelegate) => true;
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
+// --- 2. 路徑預覽卡片組件 ---
+class PathPreviewCard extends StatefulWidget {
+  final dynamic pathItem;
+  final String drivetrain;
+  const PathPreviewCard({super.key, required this.pathItem, required this.drivetrain});
+
+  @override
+  State<PathPreviewCard> createState() => _PathPreviewCardState();
+}
+
+class _PathPreviewCardState extends State<PathPreviewCard> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 5))..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("MATCH ${widget.pathItem['match']}", style: const TextStyle(color: Colors.white38, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              const Icon(Icons.bolt_rounded, color: Colors.amberAccent, size: 12),
+            ],
+          ),
+          const SizedBox(height: 8),
+          AspectRatio(
+            aspectRatio: 16 / 10,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                children: [
+                  Positioned.fill(child: Opacity(opacity: 0.5, child: Image.asset('assets/images/field2026.png', fit: BoxFit.fill))),
+                  Positioned.fill(
+                    child: AnimatedBuilder(
+                      animation: _controller,
+                      builder: (context, _) => CustomPaint(
+                        painter: AdvancedPathPainter(
+                          rawPoints: widget.pathItem['raw'],
+                          progress: _controller.value,
+                          drivetrain: widget.drivetrain,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- 3. 排行榜主頁面 ---
 class AllTotalPage extends StatefulWidget {
   final String roomName;
   const AllTotalPage({super.key, required this.roomName});
@@ -47,304 +226,190 @@ class AllTotalPage extends StatefulWidget {
 }
 
 class _AllTotalPageState extends State<AllTotalPage> {
+  final Color darkBg = const Color(0xFF0F0E13);
+  final Color surfaceDark = const Color(0xFF1C1B21);
+  final Color accentPurple = const Color(0xFFB388FF);
+
+  List<dynamic> _allRegisteredTeams = [];
   List<dynamic> _reports = [];
+  Map<String, String> _teamDrivetrains = {};
   bool _isLoading = true;
-  final String serverIp = Api.serverIp;
-  final Color primaryPurple = const Color(0xFF673AB7);
 
   @override
   void initState() {
     super.initState();
-    _fetchTotalData();
+    _fetchInitialData();
   }
 
-  Future<void> _fetchTotalData() async {
+  Future<void> _fetchInitialData() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$serverIp/v1/rooms/all-reports?roomName=${widget.roomName}'),
-      ).timeout(const Duration(seconds: 5));
+      final headers = {"ngrok-skip-browser-warning": "true"};
+      final teamsRes = await http.get(Uri.parse('${Api.serverIp}/v1/rooms/teams?roomName=${widget.roomName}'), headers: headers);
+      final reportsRes = await http.get(Uri.parse('${Api.serverIp}/v1/rooms/all-reports?roomName=${widget.roomName}'), headers: headers);
 
-      if (response.statusCode == 200) {
-        if (mounted) {
-          setState(() {
-            _reports = jsonDecode(response.body);
-            _isLoading = false;
-          });
+      if (mounted) {
+        _allRegisteredTeams = jsonDecode(teamsRes.body);
+        _reports = jsonDecode(reportsRes.body);
+
+        for (var team in _allRegisteredTeams) {
+          String teamNum = team['teamNumber'].toString();
+          final pitRes = await http.get(Uri.parse('${Api.serverIp}/v1/pit/get-data?roomName=${widget.roomName}&teamNumber=$teamNum'), headers: headers);
+          if (pitRes.statusCode == 200) {
+            _teamDrivetrains[teamNum] = jsonDecode(pitRes.body)['drivetrain'] ?? "Swerve";
+          }
         }
+        setState(() => _isLoading = false);
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // --- 數據處理：同步 Depot 與 歸一化座標 ---
-  List<Map<String, dynamic>> _processTeamData() {
+  List<Map<String, dynamic>> _processData() {
     Map<String, Map<String, dynamic>> teamStats = {};
+
+    for (var team in _allRegisteredTeams) {
+      String teamNum = team['teamNumber'].toString();
+      teamStats[teamNum] = {
+        'teamNumber': teamNum,
+        'sumTotal': 0.0,
+        'matchCount': 0,
+        'pathDataList': <Map<String, dynamic>>[],
+      };
+    }
+
     for (var report in _reports) {
       String teamNum = report['teamNumber'].toString();
-      int autoBalls = int.tryParse(report['autoBallCount'].toString()) ?? 0;
-      int teleopBalls = int.tryParse(report['teleopBallCount'].toString()) ?? 0;
-      bool isHanging = report['isAutoHanging'] == true || report['isAutoHanging'] == 1;
-      bool isLeave = report['isLeave'] == true || report['isLeave'] == 1;
-      int endgameLevel = int.tryParse(report['endgameLevel'].toString()) ?? 0;
+      if (!teamStats.containsKey(teamNum)) continue;
+      teamStats[teamNum]!['matchCount'] += 1;
+      teamStats[teamNum]!['sumTotal'] += _calculateScore(report);
 
-      // 取得歸一化點
-      List<dynamic>? pathPointsJson = report['autoPathPoints'];
-
-      double autoScore = (autoBalls * 1.0) + (isHanging ? 15.0 : 0.0) + (isLeave ? 3.0 : 0.0);
-      double teleopScore = (teleopBalls * 1.0) + (endgameLevel * 10.0);
-
-      if (!teamStats.containsKey(teamNum)) {
-        teamStats[teamNum] = {
-          'teamNumber': teamNum,
-          'sumTotal': 0.0,
-          'sumAutoBalls': 0,
-          'sumTeleopBalls': 0,
-          'matchCount': 0,
-          'maxEndgameLevel': 0,
-          'pathDataList': <Map<String, dynamic>>[],
-        };
-      }
-
-      var stats = teamStats[teamNum]!;
-      stats['sumTotal'] += (autoScore + teleopScore);
-      stats['sumAutoBalls'] += autoBalls;
-      stats['sumTeleopBalls'] += teleopBalls;
-      stats['matchCount'] += 1;
-      if (endgameLevel > stats['maxEndgameLevel']) stats['maxEndgameLevel'] = endgameLevel;
-
-      if (pathPointsJson != null && pathPointsJson.isNotEmpty) {
-        (stats['pathDataList'] as List).add({
-          'match': report['matchNumber'].toString(),
-          'depot': report['depot'] ?? "Unknown", // 同步 Depot 資訊
-          'points': _convertToOffsets(pathPointsJson),
-        });
+      if (report['autoPathPoints'] != null) {
+        var points = report['autoPathPoints'];
+        if (points is String) points = jsonDecode(points);
+        if ((points as List).isNotEmpty) {
+          (teamStats[teamNum]!['pathDataList'] as List).add({'match': report['matchNumber'], 'raw': points});
+        }
       }
     }
-    return teamStats.values.map((team) {
-      team['avgTotal'] = team['sumTotal'] / team['matchCount'];
-      return team;
+
+    return teamStats.values.map((t) {
+      t['avgTotal'] = t['matchCount'] > 0 ? t['sumTotal'] / t['matchCount'] : 0.0;
+      return t;
     }).toList()..sort((a, b) => b['avgTotal'].compareTo(a['avgTotal']));
   }
 
-  List<Offset?> _convertToOffsets(List<dynamic> jsonList) {
-    return jsonList.map((item) {
-      if (item == null) return null;
-      return Offset(
-          double.parse(item['x'].toString()),
-          double.parse(item['y'].toString())
-      );
-    }).toList();
+  double _calculateScore(dynamic r) {
+    double auto = (double.tryParse(r['autoBallCount']?.toString() ?? "0") ?? 0);
+    double leave = (r['isLeave'] == true || r['isLeave'] == 1) ? 3.0 : 0.0;
+    double hang = (r['isAutoHanging'] == true || r['isAutoHanging'] == 1) ? 15.0 : 0.0;
+    double tele = (double.tryParse(r['teleopBallCount']?.toString() ?? "0") ?? 0);
+    double end = (double.tryParse(r['endgameLevel']?.toString() ?? "0") ?? 0) * 10.0;
+    return auto + leave + hang + tele + end;
   }
 
-  // --- UI: 同步不歪斜的路徑預覽 ---
-  Widget _buildPathPreview(List<Offset?> normalizedPoints) {
-    return AspectRatio(
-      aspectRatio: 16 / 9,
-      child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Stack(
-                  children: [
-                    // 同步：使用 BoxFit.fill 配合歸一化座標
-                    Image.asset(
-                        'assets/images/field2026.png',
-                        fit: BoxFit.fill,
-                        width: double.infinity,
-                        height: double.infinity
-                    ),
-                    CustomPaint(
-                      painter: PathPainter(normalizedPoints, primaryPurple),
-                      size: Size(constraints.maxWidth, constraints.maxHeight),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
+  @override
+  Widget build(BuildContext context) {
+    final leaderboard = _processData();
+
+    return Scaffold(
+      backgroundColor: darkBg,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: Text("RANKING: ${widget.roomName}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 2)),
+        centerTitle: true,
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh_rounded, color: Colors.white54, size: 20), onPressed: _fetchInitialData),
+          IconButton(icon: const Icon(Icons.ios_share_rounded, color: Color(0xFFB388FF), size: 20), onPressed: _handleExport),
+        ],
+      ),
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator(color: accentPurple))
+          : ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        itemCount: leaderboard.length,
+        itemBuilder: (context, index) => _buildTeamCard(leaderboard[index], index + 1),
       ),
     );
   }
 
-  void _showPathGallery(String teamNum, List<dynamic> pathList) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
-        decoration: const BoxDecoration(
-          color: Color(0xFF1C1B1F),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
+  Widget _buildTeamCard(Map<String, dynamic> team, int rank) {
+    String teamNum = team['teamNumber'];
+    bool hasPaths = (team['pathDataList'] as List).isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: surfaceDark,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: rank <= 3 ? accentPurple.withOpacity(0.4) : Colors.white.withOpacity(0.05)),
+        boxShadow: rank <= 3 ? [BoxShadow(color: accentPurple.withOpacity(0.1), blurRadius: 10, spreadRadius: 1)] : null,
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          leading: _buildRankBadge(rank),
+          title: Text("TEAM $teamNum", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15)),
+          subtitle: Text("AVG: ${team['avgTotal'].toStringAsFixed(1)} pts", style: TextStyle(color: accentPurple, fontSize: 11, fontWeight: FontWeight.bold)),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
-            Container(margin: const EdgeInsets.symmetric(vertical: 12), width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Text("Team $teamNum - Strategy Map", style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-            ),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemCount: pathList.length,
-                itemBuilder: (context, index) {
-                  final item = pathList[index];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.adjust, color: primaryPurple, size: 16),
-                              const SizedBox(width: 8),
-                              Text("Match ${item['match']}", style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                          // 顯示出發位置
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(4)),
-                            child: Text("Depot: ${item['depot']}", style: const TextStyle(color: Colors.white54, fontSize: 10)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      _buildPathPreview(item['points'] as List<Offset?>),
-                      const SizedBox(height: 30),
-                    ],
-                  );
-                },
-              ),
-            ),
+            if (hasPaths) ...[
+              const Divider(color: Colors.white10, height: 20),
+              const Align(alignment: Alignment.centerLeft, child: Text("AUTO PATHS", style: TextStyle(color: Colors.white24, fontSize: 8, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
+              const SizedBox(height: 10),
+              ... (team['pathDataList'] as List).take(3).map((path) => PathPreviewCard(pathItem: path, drivetrain: _teamDrivetrains[teamNum] ?? "Swerve")),
+            ],
+            const SizedBox(height: 12),
+            _buildPitButton(teamNum),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTeamCard(Map<String, dynamic> team, int rank) {
-    bool hasPaths = (team['pathDataList'] as List).isNotEmpty;
-
+  Widget _buildRankBadge(int rank) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      width: 36, height: 36,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+        color: rank <= 3 ? accentPurple.withOpacity(0.15) : Colors.white.withOpacity(0.05),
+        shape: BoxShape.circle,
+        border: Border.all(color: rank <= 3 ? accentPurple.withOpacity(0.5) : Colors.transparent),
       ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                _buildRankBadge(rank),
-                const SizedBox(width: 16),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text("TEAM", style: TextStyle(fontSize: 10, color: Colors.black38)),
-                  Text(team['teamNumber'], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                ])),
-                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text(team['avgTotal'].toStringAsFixed(1), style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: primaryPurple)),
-                  const Text("AVG PTS", style: TextStyle(fontSize: 9, color: Colors.black38)),
-                ]),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  _buildStatBox("Matches", "${team['matchCount']}"),
-                  _buildStatBox("Avg Auto", "${(team['sumAutoBalls']/team['matchCount']).toStringAsFixed(1)}"),
-                  _buildStatBox("Avg Tele", "${(team['sumTeleopBalls']/team['matchCount']).toStringAsFixed(1)}"),
-                  _buildStatBox("Max End", "L${team['maxEndgameLevel']}"),
-                ]),
-                const SizedBox(height: 16),
-                Row(children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: hasPaths ? () => _showPathGallery(team['teamNumber'], team['pathDataList']) : null,
-                      icon: Icon(Icons.map_outlined, size: 16, color: hasPaths ? Colors.white : Colors.grey),
-                      label: Text(hasPaths ? "Tactical Analysis (${(team['pathDataList'] as List).length})" : "No Path Data"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: hasPaths ? primaryPurple : Colors.grey.shade200,
-                        foregroundColor: hasPaths ? Colors.white : Colors.grey,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ]),
-              ],
-            ),
-          ),
-        ],
+      child: Center(child: Text("$rank", style: TextStyle(color: rank <= 3 ? accentPurple : Colors.white38, fontWeight: FontWeight.bold, fontSize: 13))),
+    );
+  }
+
+  Widget _buildPitButton(String teamNum) {
+    return SizedBox(
+      width: double.infinity,
+      height: 44,
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: Colors.white.withOpacity(0.1)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => PitCheckPage(teamNumber: teamNum, roomName: widget.roomName))),
+        child: const Text("VIEW PIT DETAILS", style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1)),
       ),
     );
   }
 
-  // --- 輔助元件 ---
-  Widget _buildRankBadge(int rank) => Container(width: 36, height: 36, decoration: BoxDecoration(color: rank <= 3 ? primaryPurple.withOpacity(0.1) : Colors.grey.shade100, shape: BoxShape.circle), alignment: Alignment.center, child: Text("#$rank", style: TextStyle(fontWeight: FontWeight.bold, color: rank <= 3 ? primaryPurple : Colors.black45)));
-  Widget _buildStatBox(String label, String value) => Column(children: [Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)), Text(label, style: const TextStyle(fontSize: 10, color: Colors.black38))]);
-  Widget _buildEmptyState() => const Center(child: Text("No data yet"));
-  void _showErrorSnackBar(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-
-  Future<void> _exportXlsx(dynamic _) async {
-    setState(() => _isLoading = true);
+  Future<void> _handleExport() async {
+    HapticFeedback.lightImpact();
     try {
-      final url = Uri.parse('$serverIp/v1/rooms/export-excel?roomName=${widget.roomName}');
-      final response = await http.get(url);
+      final url = Uri.parse('${Api.serverIp}/v1/rooms/export-excel?roomName=${widget.roomName}');
+      final response = await http.get(url, headers: {"ngrok-skip-browser-warning": "true"});
       if (response.statusCode == 200) {
-        final directory = await getTemporaryDirectory();
-        final filePath = '${directory.path}/${widget.roomName}_Ranking.xlsx';
-        final file = File(filePath);
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}/Scouting_${widget.roomName}.xlsx');
         await file.writeAsBytes(response.bodyBytes);
-        await Share.shareXFiles([XFile(filePath)], text: 'FRC Ranking - ${widget.roomName}');
+        await Share.shareXFiles([XFile(file.path)]);
       }
     } catch (e) {
-      _showErrorSnackBar("Export failed");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      debugPrint("Export Error: $e");
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final groupedData = _processTeamData();
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE),
-      appBar: AppBar(
-        title: Text("${widget.roomName} Ranking", style: const TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(icon: const Icon(Icons.share_outlined), onPressed: groupedData.isEmpty ? null : () => _exportXlsx(groupedData)),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : groupedData.isEmpty
-          ? _buildEmptyState()
-          : RefreshIndicator(
-        onRefresh: _fetchTotalData,
-        child: ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: groupedData.length,
-          itemBuilder: (context, index) => _buildTeamCard(groupedData[index], index + 1),
-        ),
-      ),
-    );
   }
 }

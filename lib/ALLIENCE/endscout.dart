@@ -3,12 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'api.dart';
-import 'startscout.dart'; // 確保路徑正確
+import 'startscout.dart';
 
 class RatingPage extends StatefulWidget {
   final String roomName;
-  final int reportIndex;
-  final Map<String, dynamic> reportData;
+  final int reportIndex; // 用於傳統索引
+  final Map<String, dynamic> reportData; // 包含 matchNumber 與 teamNumber
 
   const RatingPage({
     super.key,
@@ -22,28 +22,39 @@ class RatingPage extends StatefulWidget {
 }
 
 class _RatingPageState extends State<RatingPage> {
+  // --- UI Styling ---
+  final Color darkBg = const Color(0xFF0F0E13);
+  final Color surfaceDark = const Color(0xFF1C1B21);
+  final Color primaryPurple = const Color(0xFF7E57C2);
+  final Color accentPurple = const Color(0xFFB388FF);
+
+  // --- State Data ---
   int _selectedRating = 3;
+  double _accuracyRating = 0.5;
   final TextEditingController _notesController = TextEditingController();
   bool _isSending = false;
 
+  // 定義駕駛表現層級
   final List<Map<String, dynamic>> _ratingLevels = [
-    {'label': '夯 (Top Tier)', 'value': 5, 'color': Colors.redAccent},
-    {'label': '人上人', 'value': 4, 'color': Colors.orangeAccent},
-    {'label': '普通', 'value': 3, 'color': Colors.blueGrey},
-    {'label': '人機 (Bot)', 'value': 2, 'color': Colors.brown},
-    {'label': '拉完了 (Choked)', 'value': 1, 'color': Colors.black},
+    {'label': '夯', 'value': 5, 'color': const Color(0xFFFF5252)},
+    {'label': '人上人', 'value': 4, 'color': const Color(0xFFFFAB40)},
+    {'label': '人機', 'value': 3, 'color': const Color(0xFF64B5F6)},
+    {'label': '神人', 'value': 2, 'color': const Color(0xFF8D6E63)},
+    {'label': '拉完了', 'value': 1, 'color': const Color(0xFF424242)},
   ];
 
   @override
   void initState() {
     super.initState();
-    // 評價頁面強制轉回直向，方便打字
+    // 鎖定直向
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
 
+  /// 提交最終分析報告
   Future<void> _submitRating() async {
     if (_isSending) return;
     setState(() => _isSending = true);
+    HapticFeedback.heavyImpact();
 
     try {
       final response = await http.post(
@@ -51,37 +62,49 @@ class _RatingPageState extends State<RatingPage> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'roomName': widget.roomName,
-          'index': widget.reportIndex,
+          'index': widget.reportIndex, // 傳統索引
+          'matchNumber': widget.reportData['matchNumber'], // 精準索引 1
+          'teamNumber': widget.reportData['teamNumber'],   // 精準索引 2
           'rating': _selectedRating,
-          'notes': _notesController.text,
+          'accuracy': (_accuracyRating * 100).toInt(),
+          'notes': _notesController.text.isEmpty ? "No special notes." : _notesController.text,
         }),
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200 && mounted) {
-        // ✅ 核心邏輯：清空頁面棧回到 StartScout
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) => StartScout(roomName: widget.roomName),
-          ),
-              (route) => false,
-        );
+        // 成功後顯示提示並跳轉
+        _showSuccessAndExit();
       } else {
-        throw Exception("Server Error");
+        _showError("UPLOAD FAILED", "Server status: ${response.statusCode}");
       }
     } catch (e) {
-      _showError("上傳失敗", "網路異常，請檢查伺服器連線。");
+      _showError("CONNECTION ERROR", "Check your network: $e");
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
+  }
+
+  void _showSuccessAndExit() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Analysis Saved Successfully!"), backgroundColor: Colors.green),
+    );
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => StartScout(roomName: widget.roomName)),
+          (route) => false,
+    );
   }
 
   void _showError(String title, String msg) {
     showDialog(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text(title),
-        content: Text(msg),
-        actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text("確定"))],
+        backgroundColor: surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(title, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+        content: Text(msg, style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text("TRY AGAIN"))
+        ],
       ),
     );
   }
@@ -89,74 +112,202 @@ class _RatingPageState extends State<RatingPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE),
+      backgroundColor: darkBg,
       appBar: AppBar(
-        title: const Text("Drive Score"),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text("MATCH ANALYSIS", style: TextStyle(letterSpacing: 2, fontWeight: FontWeight.w900, fontSize: 12, color: Colors.white54)),
         centerTitle: true,
-        automaticallyImplyLeading: false, // 禁止返回，必須完成評價
+        automaticallyImplyLeading: false,
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildQuickHeader(),
+            const SizedBox(height: 32),
+
+            _sectionLabel("SHOOTING ACCURACY"),
+            const SizedBox(height: 16),
+            _buildAccuracySlider(),
+
+            const SizedBox(height: 40),
+
+            _sectionLabel("DRIVER PERFORMANCE"),
+            const SizedBox(height: 16),
+            ..._ratingLevels.map((level) => _buildRatingCard(level)),
+
+            const SizedBox(height: 24),
+            _sectionLabel("SCOUT NOTES"),
+            const SizedBox(height: 12),
+            _buildNotesField(),
+
+            const SizedBox(height: 40),
+            _buildDoneButton(),
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) {
+    return Text(text, style: const TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2));
+  }
+
+  Widget _buildQuickHeader() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: surfaceDark,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text("Match ${widget.reportData['matchNumber']} | Team ${widget.reportData['teamNumber']}",
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
-              const SizedBox(height: 20),
-
-              // 評價選擇
-              ..._ratingLevels.map((level) => _buildRatingCard(level)),
-
-              const SizedBox(height: 24),
-              TextField(
-                controller: _notesController,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  hintText: "是否有特殊故障或防禦表現？",
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: FilledButton(
-                  onPressed: _isSending ? null : _submitRating,
-                  child: _isSending
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("DONE", style: TextStyle(fontSize: 18)),
-                ),
-              ),
+              Text("TEAM ${widget.reportData['teamNumber']}", style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
+              Text("MATCH #${widget.reportData['matchNumber']}", style: TextStyle(color: accentPurple, fontSize: 13, fontWeight: FontWeight.bold)),
             ],
           ),
-        ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
+            child: Column(
+              children: [
+                const Text("EST. POINTS", style: TextStyle(color: Colors.white38, fontSize: 8, fontWeight: FontWeight.bold)),
+                Text("${widget.reportData['autoBallCount'] + widget.reportData['teleopBallCount']}",
+                    style: TextStyle(color: accentPurple, fontSize: 20, fontWeight: FontWeight.w900, fontFamily: 'monospace')),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAccuracySlider() {
+    int percent = (_accuracyRating * 100).toInt();
+    Color activeColor = Color.lerp(Colors.redAccent, accentPurple, _accuracyRating)!;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: surfaceDark,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: activeColor.withOpacity(0.1)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("$percent%", style: TextStyle(color: activeColor, fontSize: 32, fontWeight: FontWeight.w900, fontFamily: 'monospace')),
+              Icon(Icons.track_changes_rounded, color: activeColor.withOpacity(0.5), size: 28),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: activeColor,
+              inactiveTrackColor: Colors.white10,
+              thumbColor: Colors.white,
+              overlayColor: activeColor.withOpacity(0.2),
+              trackHeight: 10,
+            ),
+            child: Slider(
+              value: _accuracyRating,
+              onChanged: (val) {
+                HapticFeedback.selectionClick();
+                setState(() => _accuracyRating = val);
+              },
+            ),
+          ),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("LOW PRECISION", style: TextStyle(color: Colors.white24, fontSize: 9, fontWeight: FontWeight.bold)),
+              Text("SNIPER ACCURACY", style: TextStyle(color: Colors.white24, fontSize: 9, fontWeight: FontWeight.bold)),
+            ],
+          )
+        ],
       ),
     );
   }
 
   Widget _buildRatingCard(Map<String, dynamic> level) {
     bool isSelected = _selectedRating == level['value'];
+    Color color = level['color'] as Color;
+
     return GestureDetector(
-      onTap: () => setState(() => _selectedRating = level['value']),
-      child: Container(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        setState(() => _selectedRating = level['value']);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
         margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
         decoration: BoxDecoration(
-          color: isSelected ? level['color'] : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: isSelected ? Colors.transparent : Colors.black12),
+          color: isSelected ? color.withOpacity(0.12) : surfaceDark,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? color : Colors.white.withOpacity(0.05), width: isSelected ? 2 : 1),
+          boxShadow: isSelected ? [BoxShadow(color: color.withOpacity(0.1), blurRadius: 10)] : [],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(level['label'],
-                style: TextStyle(fontSize: 16, color: isSelected ? Colors.white : Colors.black87, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-            if (isSelected) const Icon(Icons.check_circle, color: Colors.white),
+                style: TextStyle(
+                    fontSize: 14,
+                    color: isSelected ? Colors.white : Colors.white54,
+                    fontWeight: isSelected ? FontWeight.w900 : FontWeight.bold,
+                    letterSpacing: 1
+                )),
+            if (isSelected) Icon(Icons.stars_rounded, color: color, size: 24),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildNotesField() {
+    return TextField(
+      controller: _notesController,
+      maxLines: 4,
+      style: const TextStyle(color: Colors.white, fontSize: 14),
+      decoration: InputDecoration(
+        hintText: "Add details about robot stability, defense, or failures...",
+        hintStyle: const TextStyle(color: Colors.white10),
+        filled: true,
+        fillColor: Colors.black26,
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: Colors.white.withOpacity(0.05))),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: primaryPurple.withOpacity(0.5))),
+      ),
+    );
+  }
+
+  Widget _buildDoneButton() {
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: _isSending ? [] : [BoxShadow(color: primaryPurple.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10))],
+      ),
+      child: ElevatedButton(
+        onPressed: _isSending ? null : _submitRating,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryPurple,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: Colors.white10,
+          minimumSize: const Size(double.infinity, 70),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          elevation: 0,
+        ),
+        child: _isSending
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+            : const Text("FINISH MATCH ANALYSIS", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
       ),
     );
   }

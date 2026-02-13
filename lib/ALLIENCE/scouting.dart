@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import '../PIT/path.dart';
 import 'api.dart';
 import 'endscout.dart';
-
 
 class ScoutingPage extends StatefulWidget {
   final String roomName;
@@ -26,33 +27,23 @@ class ScoutingPage extends StatefulWidget {
 }
 
 class _ScoutingPageState extends State<ScoutingPage> {
-  // --- Data States ---
+  // --- 深色配色方案 ---
+  final Color darkBg = const Color(0xFF0F0E13);
+  final Color surfaceDark = const Color(0xFF1C1B21);
+  final Color primaryPurple = const Color(0xFF7E57C2);
+  final Color accentPurple = const Color(0xFFB388FF);
+  final Color allianceColor = const Color(0xFF7E57C2); // 預設紫色，可根據位置動態變更
+
+  // --- 數據狀態 ---
   int _autoBalls = 0, _teleBalls = 0;
   bool _isLeave = false, _isHanging = false;
   int _endgameLevel = 0;
-
-  // Tactical Counters
   int _autoBump = 0, _autoTrench = 0, _autoDepot = 0, _autoOutpost = 0;
   int _teleBump = 0, _teleTrench = 0, _teleDepot = 0, _teleOutpost = 0;
-
-  // --- Canvas States ---
-  final List<Offset?> _points = [];
-  final GlobalKey _canvasKey = GlobalKey();
-  bool _isCanvasLocked = true; // Controls scroll locking and drawing
-  final Color primaryPurple = const Color(0xFF673AB7);
+  String _autoPathJson = "[]";
 
   Future<void> _submitReport() async {
-    final RenderBox? renderBox = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
-    final Size size = renderBox?.size ?? const Size(1, 1);
-
-    List<Map<String, dynamic>?> normalizedPoints = _points.map((p) {
-      if (p == null) return null;
-      return {
-        'x': (p.dx / size.width).clamp(0.0, 1.0),
-        'y': (p.dy / size.height).clamp(0.0, 1.0),
-      };
-    }).toList();
-
+    HapticFeedback.heavyImpact();
     final Map<String, dynamic> payload = {
       'roomName': widget.roomName,
       'user': widget.userName,
@@ -64,7 +55,7 @@ class _ScoutingPageState extends State<ScoutingPage> {
       'isLeave': _isLeave,
       'isAutoHanging': _isHanging,
       'endgameLevel': _endgameLevel,
-      'autoPathPoints': normalizedPoints,
+      'autoPathPoints': jsonDecode(_autoPathJson),
       'autoBump': _autoBump,
       'autoTrench': _autoTrench,
       'autoDepot': _autoDepot,
@@ -84,237 +75,376 @@ class _ScoutingPageState extends State<ScoutingPage> {
 
       if (response.statusCode == 200 && mounted) {
         final responseData = jsonDecode(response.body);
-        final int reportIndex = responseData['index'] ?? 0;
-
         Navigator.push(context, MaterialPageRoute(
           builder: (context) => RatingPage(
             roomName: widget.roomName,
             reportData: payload,
-            reportIndex: reportIndex,
+            reportIndex: responseData['index'] ?? 0,
           ),
         ));
       }
     } catch (e) {
-      debugPrint("Submit Error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.redAccent),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
-      appBar: AppBar(
-        title: Text("M${widget.matchNumber} - T${widget.teamNumber}"),
-      ),
-      // --- Scroll Logic: Disable physics when drawing ---
-      body: SingleChildScrollView(
-        physics: _isCanvasLocked
-            ? const AlwaysScrollableScrollPhysics()
-            : const NeverScrollableScrollPhysics(),
-        child: Column(
-          children: [
-            _buildSection("AUTONOMOUS", Colors.orange, [
-              _counterRow("Auto Fuel", _autoBalls, (v) => setState(() => _autoBalls = v)),
-              const Divider(height: 32),
-              _tacticalGrid([
-                _smallCounter("BUMP", _autoBump, (v) => setState(() => _autoBump = v)),
-                _smallCounter("TRENCH", _autoTrench, (v) => setState(() => _autoTrench = v)),
-                _smallCounter("DEPOT", _autoDepot, (v) => setState(() => _autoDepot = v)),
-                _smallCounter("OUTPOST", _autoOutpost, (v) => setState(() => _autoOutpost = v)),
-              ]),
-              const SizedBox(height: 16),
-              Row(children: [
-                Expanded(child: _toggleChip("Leave", _isLeave, (v) => setState(() => _isLeave = v))),
-                const SizedBox(width: 8),
-                Expanded(child: _toggleChip("Hang", _isHanging, (v) => setState(() => _isHanging = v))),
-              ]),
-              _buildCanvas(),
-            ]),
-            _buildSection("TELEOP", Colors.blue, [
-              _counterRow("Tele Fuel", _teleBalls, (v) => setState(() => _teleBalls = v)),
-              const Divider(height: 32),
-              _tacticalGrid([
-                _smallCounter("BUMP", _teleBump, (v) => setState(() => _teleBump = v)),
-                _smallCounter("TRENCH", _teleTrench, (v) => setState(() => _teleTrench = v)),
-                _smallCounter("DEPOT", _teleDepot, (v) => setState(() => _teleDepot = v)),
-                _smallCounter("OUTPOST", _teleOutpost, (v) => setState(() => _teleOutpost = v)),
-              ]),
-              const Center(child: Text("Endgame Level", style: TextStyle(fontWeight: FontWeight.bold))),
-              const SizedBox(height: 8),
-              _buildEndgamePicker(),
-            ]),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              child: ElevatedButton(
-                onPressed: _submitReport,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryPurple,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 60),
-                ),
-                child: const Text("SUBMIT DATA", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+    // 根據陣營動態決定標籤顏色
+    final Color posColor = widget.position.startsWith('Red') ? Colors.redAccent : Colors.blueAccent;
 
-  Widget _buildCanvas() {
-    return Column(
-      children: [
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Scaffold(
+      backgroundColor: darkBg,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded, color: Colors.white54),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Column(
           children: [
-            const Text("AUTO PATH", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed: () => setState(() => _isCanvasLocked = !_isCanvasLocked),
-                  icon: Icon(_isCanvasLocked ? Icons.lock_outline : Icons.lock_open, size: 18),
-                  label: Text(_isCanvasLocked ? "Unlock to Draw" : "Lock to Scroll"),
-                  style: TextButton.styleFrom(
-                    foregroundColor: _isCanvasLocked ? Colors.grey : primaryPurple,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
-                  onPressed: _isCanvasLocked ? null : () => setState(() => _points.clear()),
-                ),
-              ],
-            ),
+            Text("QUAL ${widget.matchNumber} • ${widget.position}",
+                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5, color: Colors.white38)),
+            Text("TEAM ${widget.teamNumber}",
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1)),
           ],
         ),
-        AspectRatio(
-          aspectRatio: 16 / 9,
-          child: Container(
+        centerTitle: true,
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 16, top: 12, bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _isCanvasLocked ? Colors.black12 : primaryPurple.withOpacity(0.5), width: 1.5),
+              color: posColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: posColor.withOpacity(0.5)),
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                children: [
-                  Image.asset(
-                    'assets/images/field2026.png',
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    color: _isCanvasLocked ? Colors.white.withOpacity(0.8) : null,
-                    colorBlendMode: BlendMode.modulate,
-                  ),
-                  Positioned.fill(
-                    child: GestureDetector(
-                      onPanStart: _isCanvasLocked ? null : (details) => setState(() => _points.add(details.localPosition)),
-                      onPanUpdate: _isCanvasLocked ? null : (details) => setState(() => _points.add(details.localPosition)),
-                      onPanEnd: _isCanvasLocked ? null : (details) => setState(() => _points.add(null)),
-                      child: CustomPaint(
-                        key: _canvasKey,
-                        painter: ScoutingPainter(_points, primaryPurple),
-                        size: Size.infinite,
-                      ),
-                    ),
-                  ),
-                  if (_isCanvasLocked)
-                    const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.touch_app, color: Colors.grey, size: 30),
-                          Text("Tap 'Unlock' to Draw Path", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
+            child: Center(
+              child: Text(widget.position, style: TextStyle(color: posColor, fontWeight: FontWeight.bold, fontSize: 10)),
             ),
+          )
+        ],
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0, -0.8),
+            radius: 1.5,
+            colors: [primaryPurple.withOpacity(0.05), darkBg],
           ),
         ),
-      ],
-    );
-  }
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 100),
+          child: Column(
+            children: [
+              // --- AUTONOMOUS ---
+              _buildSection(
+                title: "AUTONOMOUS STAGE",
+                icon: Icons.auto_awesome_rounded,
+                children: [
+                  _counterRow("Auto Scored Fuels", _autoBalls, (v) => setState(() => _autoBalls = v)),
+                  _sectionDivider("Field Points"),
+                  _tacticalGrid([
+                    _smallCounter("BUMP", _autoBump, (v) => setState(() => _autoBump = v)),
+                    _smallCounter("TRENCH", _autoTrench, (v) => setState(() => _autoTrench = v)),
+                    _smallCounter("DEPOT", _autoDepot, (v) => setState(() => _autoDepot = v)),
+                    _smallCounter("OUTPOST", _autoOutpost, (v) => setState(() => _autoOutpost = v)),
+                  ]),
+                  const SizedBox(height: 24),
+                  Row(children: [
+                    Expanded(child: _toggleChip("Leave Line", _isLeave, (v) => setState(() => _isLeave = v))),
+                    const SizedBox(width: 12),
+                    Expanded(child: _toggleChip("Auto Hang", _isHanging, (v) => setState(() => _isHanging = v))),
+                  ]),
+                  const SizedBox(height: 24),
+                  _sectionLabel("AUTO PATH STRATEGY"),
+                  const SizedBox(height: 12),
+                  Container(
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    ),
+                    child: BezierPathCanvas(
+                      drivetrain: "swerve",
+                      onPathJsonChanged: (json) => _autoPathJson = json,
+                    ),
+                  ),
+                ],
+              ),
 
-  // --- UI Components ---
-  Widget _quickAddBtn(String label, Color color, VoidCallback? onTap) {
-    return OutlinedButton(
-      onPressed: onTap,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: color,
-        side: BorderSide(color: color.withOpacity(0.4)),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              // --- TELEOP ---
+              _buildSection(
+                title: "TELE-OP STAGE",
+                icon: Icons.sports_esports_rounded,
+                children: [
+                  _counterRow("Teleop Scored Fuels", _teleBalls, (v) => setState(() => _teleBalls = v)),
+                  _sectionDivider("Performance Metrics"),
+                  _tacticalGrid([
+                    _smallCounter("BUMP", _teleBump, (v) => setState(() => _teleBump = v)),
+                    _smallCounter("TRENCH", _teleTrench, (v) => setState(() => _teleTrench = v)),
+                    _smallCounter("DEPOT", _teleDepot, (v) => setState(() => _teleDepot = v)),
+                    _smallCounter("OUTPOST", _teleOutpost, (v) => setState(() => _teleOutpost = v)),
+                  ]),
+                  const SizedBox(height: 32),
+                  _sectionLabel("ENDGAME STATUS"),
+                  const SizedBox(height: 16),
+                  _buildEndgamePicker(),
+                ],
+              ),
+
+              const SizedBox(height: 40),
+              _buildSubmitButton(),
+            ],
+          ),
+        ),
       ),
-      child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
     );
   }
 
-  Widget _smallCounter(String label, int value, Function(int) onChanged) =>
-      Column(children: [
-        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          IconButton(icon: const Icon(Icons.remove, size: 18), onPressed: value > 0 ? () => onChanged(value - 1) : null),
-          Text("$value", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          IconButton(icon: const Icon(Icons.add, size: 18, color: Colors.blue), onPressed: () => onChanged(value + 1)),
+  // --- UI 元件集 ---
+
+  Widget _buildSection({required String title, required IconData icon, required List<Widget> children}) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: surfaceDark,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 15, offset: const Offset(0, 8))],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(icon, color: accentPurple, size: 20),
+          const SizedBox(width: 12),
+          Text(title, style: TextStyle(color: accentPurple, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1.5)),
         ]),
-      ]);
+        const SizedBox(height: 24),
+        ...children
+      ]),
+    );
+  }
 
-  Widget _tacticalGrid(List<Widget> children) =>
-      GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, childAspectRatio: 2.2, children: children);
+  Widget _sectionDivider(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Row(children: [
+        Text(text, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white24, letterSpacing: 1)),
+        const SizedBox(width: 12),
+        Expanded(child: Container(height: 1, color: Colors.white.withOpacity(0.05))),
+      ]),
+    );
+  }
 
-  Widget _buildSection(String t, Color c, List<Widget> ch) =>
-      Container(margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(t, style: TextStyle(color: c, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16), ...ch
-          ]));
+  Widget _sectionLabel(String text) {
+    return Text(text, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white38, letterSpacing: 1.5));
+  }
 
   Widget _counterRow(String label, int value, Function(int) onChanged) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        Text("$value", style: TextStyle(fontSize: 32, color: primaryPurple, fontWeight: FontWeight.bold)),
-      ]),
-      const SizedBox(height: 12),
-      Row(children: [
-        _quickAddBtn("-1", Colors.redAccent, value > 0 ? () => onChanged(value - 1) : null),
-        const SizedBox(width: 8),
-        Expanded(child: _quickAddBtn("+1", Colors.green, () => onChanged(value + 1))),
-        const SizedBox(width: 4),
-        Expanded(child: _quickAddBtn("+5", Colors.green, () => onChanged(value + 5))),
-        const SizedBox(width: 4),
-        Expanded(child: _quickAddBtn("+10", Colors.green, () => onChanged(value + 10))),
-      ]),
-    ]);
-  }
-
-  Widget _toggleChip(String l, bool a, Function(bool) o) => FilterChip(label: Text(l), selected: a, onSelected: o);
-
-  Widget _buildEndgamePicker() => SizedBox(width: double.infinity,
-    child: SegmentedButton<int>(
-      style: SegmentedButton.styleFrom(visualDensity: VisualDensity.comfortable, padding: const EdgeInsets.symmetric(vertical: 8)),
-      segments: const [
-        ButtonSegment(value: 0, label: Text("None", style: TextStyle(fontSize: 12))),
-        ButtonSegment(value: 1, label: Text("L1", style: TextStyle(fontSize: 12))),
-        ButtonSegment(value: 2, label: Text("L2", style: TextStyle(fontSize: 12))),
-        ButtonSegment(value: 3, label: Text("L3", style: TextStyle(fontSize: 12))),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
+              const SizedBox(height: 16),
+              Row(children: [
+                _circularBtn(Icons.remove_rounded, () {
+                  if (value > 0) {
+                    HapticFeedback.lightImpact();
+                    onChanged(value - 1);
+                  }
+                }),
+                const SizedBox(width: 16),
+                _circularBtn(Icons.add_rounded, () {
+                  HapticFeedback.mediumImpact();
+                  onChanged(value + 1);
+                }, isPrimary: true),
+              ]),
+              const SizedBox(height: 12),
+              Row(children: [
+                _quickAddTextBtn("+5", () {
+                  HapticFeedback.mediumImpact();
+                  onChanged(value + 5);
+                }),
+                const SizedBox(width: 10),
+                _quickAddTextBtn("+10", () {
+                  HapticFeedback.mediumImpact();
+                  onChanged(value + 10);
+                }),
+              ])
+            ],
+          ),
+        ),
+        Text("$value", style: TextStyle(fontSize: 64, fontWeight: FontWeight.w900, color: accentPurple, fontFamily: 'monospace', shadows: [
+          Shadow(color: accentPurple.withOpacity(0.5), blurRadius: 20)
+        ])),
       ],
-      selected: {_endgameLevel},
-      onSelectionChanged: (set) => setState(() => _endgameLevel = set.first),
-    ),
-  );
-}
-
-class ScoutingPainter extends CustomPainter {
-  final List<Offset?> points; final Color color;
-  ScoutingPainter(this.points, this.color);
-  @override void paint(Canvas canvas, Size size) {
-    Paint paint = Paint()..color = color..strokeCap = StrokeCap.round..strokeWidth = 5.0;
-    for (int i = 0; i < points.length - 1; i++) {
-      if (points[i] != null && points[i+1] != null) canvas.drawLine(points[i]!, points[i+1]!, paint);
-    }
+    );
   }
-  @override bool shouldRepaint(old) => true;
+
+  Widget _circularBtn(IconData icon, VoidCallback? onTap, {bool isPrimary = false}) {
+    return Material(
+      color: onTap == null ? Colors.white10 : (isPrimary ? primaryPurple : Colors.white.withOpacity(0.05)),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          child: Icon(icon, size: 24, color: onTap == null ? Colors.white24 : Colors.white),
+        ),
+      ),
+    );
+  }
+
+  Widget _quickAddTextBtn(String label, VoidCallback onTap) {
+    return Material(
+      color: Colors.white.withOpacity(0.05),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.white.withOpacity(0.05)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(label, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13)),
+        ),
+      ),
+    );
+  }
+
+  Widget _smallCounter(String label, int value, Function(int) onChanged) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.03)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white38, letterSpacing: 1)),
+          Row(children: [
+            IconButton(icon: const Icon(Icons.remove_circle_outline_rounded, size: 22, color: Colors.white24),
+                onPressed: value > 0 ? () { HapticFeedback.selectionClick(); onChanged(value - 1); } : null),
+            SizedBox(
+                width: 30,
+                child: Center(child: Text("$value", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)))),
+            IconButton(icon: Icon(Icons.add_circle_rounded, size: 22, color: accentPurple),
+                onPressed: () { HapticFeedback.selectionClick(); onChanged(value + 1); }),
+          ])
+        ],
+      ),
+    );
+  }
+
+  Widget _tacticalGrid(List<Widget> children) => ListView.separated(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    itemCount: children.length,
+    separatorBuilder: (context, index) => const SizedBox(height: 8),
+    itemBuilder: (context, index) => children[index],
+  );
+
+  Widget _toggleChip(String label, bool isActive, Function(bool) onSelected) {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onSelected(!isActive);
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: isActive ? primaryPurple : Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: isActive ? accentPurple : Colors.white.withOpacity(0.05), width: 2),
+          boxShadow: isActive ? [BoxShadow(color: primaryPurple.withOpacity(0.3), blurRadius: 10)] : [],
+        ),
+        child: Center(
+          child: Text(label, style: TextStyle(color: isActive ? Colors.white : Colors.white38, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEndgamePicker() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [0, 1, 2, 3].map((level) {
+          bool isSelected = _endgameLevel == level;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _endgameLevel = level);
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.all(4),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: isSelected ? primaryPurple : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Center(
+                  child: Text(level == 0 ? "NONE" : "L$level",
+                      style: TextStyle(color: isSelected ? Colors.white : Colors.white24, fontWeight: FontWeight.bold, fontSize: 13)),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSubmitButton() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [BoxShadow(color: primaryPurple.withOpacity(0.4), blurRadius: 25, offset: const Offset(0, 10))],
+        ),
+        child: ElevatedButton(
+          onPressed: _submitReport,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: primaryPurple,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 80),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            elevation: 0,
+          ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.rocket_launch_rounded),
+              SizedBox(width: 16),
+              Text("COMPLETE & SYNC DATA", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

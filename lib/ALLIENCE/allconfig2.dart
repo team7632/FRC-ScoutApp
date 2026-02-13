@@ -1,11 +1,11 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
 import 'api.dart';
 
-// --- 通用路徑繪製器 (還原歸一化座標) ---
+// --- 同步深色路徑繪製器 ---
 class PathPainter extends CustomPainter {
   final List<Offset?> normalizedPoints;
   final Color color;
@@ -45,6 +45,12 @@ class AllConfig2 extends StatefulWidget {
 }
 
 class _AllConfig2State extends State<AllConfig2> {
+  // --- 深色配色方案 ---
+  final Color darkBg = const Color(0xFF0F0E13);
+  final Color surfaceDark = const Color(0xFF1C1B21);
+  final Color accentPurple = const Color(0xFFB388FF);
+  final Color primaryPurple = const Color(0xFF7E57C2);
+
   List<dynamic> _reports = [];
   List<dynamic> _filteredReports = [];
   bool _isLoading = true;
@@ -61,8 +67,9 @@ class _AllConfig2State extends State<AllConfig2> {
     try {
       final response = await http.get(
         Uri.parse('${Api.serverIp}/v1/rooms/all-reports?roomName=${widget.roomName}'),
+        headers: {"ngrok-skip-browser-warning": "true"},
       ).timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && mounted) {
         setState(() {
           _reports = jsonDecode(response.body);
           _runFilter(_searchController.text);
@@ -70,7 +77,7 @@ class _AllConfig2State extends State<AllConfig2> {
         });
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -88,32 +95,19 @@ class _AllConfig2State extends State<AllConfig2> {
     });
   }
 
-  List<Offset?> _convertToOffsets(List<dynamic>? jsonList) {
-    if (jsonList == null) return [];
-    return jsonList.map((item) {
-      if (item == null) return null;
-      return Offset(
-        double.parse(item['x'].toString()),
-        double.parse(item['y'].toString()),
-      );
-    }).toList();
-  }
-
+  // --- 編輯彈窗：同步深色樣式與現代化配置 ---
   void _editReport(int index) {
     final report = _filteredReports[index];
     final originalIndex = _reports.indexOf(report);
+    HapticFeedback.heavyImpact();
 
-    // 得分控制
+    // 控制器初始化
     TextEditingController autoBallCtrl = TextEditingController(text: report['autoBallCount'].toString());
     TextEditingController teleBallCtrl = TextEditingController(text: report['teleopBallCount'].toString());
-
-    // 戰術計數器 (Auto)
     TextEditingController aBumpCtrl = TextEditingController(text: (report['autoBump'] ?? 0).toString());
     TextEditingController aTrenchCtrl = TextEditingController(text: (report['autoTrench'] ?? 0).toString());
     TextEditingController aDepotCtrl = TextEditingController(text: (report['autoDepot'] ?? 0).toString());
     TextEditingController aOutpostCtrl = TextEditingController(text: (report['autoOutpost'] ?? 0).toString());
-
-    // 戰術計數器 (Teleop)
     TextEditingController tBumpCtrl = TextEditingController(text: (report['teleBump'] ?? 0).toString());
     TextEditingController tTrenchCtrl = TextEditingController(text: (report['teleTrench'] ?? 0).toString());
     TextEditingController tDepotCtrl = TextEditingController(text: (report['teleDepot'] ?? 0).toString());
@@ -122,115 +116,139 @@ class _AllConfig2State extends State<AllConfig2> {
     bool tempIsHanging = report['isAutoHanging'] == true || report['isAutoHanging'] == 1;
     bool tempIsLeave = report['isLeave'] == true || report['isLeave'] == 1;
     int tempEndgame = int.tryParse(report['endgameLevel'].toString()) ?? 0;
-    String tempDepotPos = report['depot']?.toString() ?? "Near"; // 起始位置
+    String tempDepotPos = report['depot']?.toString() ?? "Near";
 
-    List<Offset?> pathOffsets = _convertToOffsets(report['autoPathPoints']);
-
-    showCupertinoDialog(
+    showDialog(
       context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (context, setDialogState) => CupertinoAlertDialog(
-          title: Text("Edit M${report['matchNumber']} - T${report['teamNumber']}"),
-          content: SingleChildScrollView(
-            child: Column(
+      builder: (c) => Theme(
+        data: ThemeData.dark().copyWith(
+          dialogBackgroundColor: surfaceDark,
+          colorScheme: ColorScheme.dark(primary: accentPurple),
+        ),
+        child: StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            title: Column(
               children: [
-                const Divider(height: 25),
-                _buildEditField("AUTO Fuels", autoBallCtrl),
-                _buildEditField("TELE Fuels", teleBallCtrl),
-
-                const Divider(height: 25),
-                const Text("AUTO STRATEGY", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: CupertinoColors.systemGrey)),
-                _buildEditField("A-BUMP", aBumpCtrl),
-                _buildEditField("A-TRENCH", aTrenchCtrl),
-                _buildEditField("A-DEPOT", aDepotCtrl),
-                _buildEditField("A-OUTPOST", aOutpostCtrl),
-
-                const SizedBox(height: 10),
-                const Text("TELEOP STRATEGY", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: CupertinoColors.systemGrey)),
-                _buildEditField("T-BUMP", tBumpCtrl),
-                _buildEditField("T-TRENCH", tTrenchCtrl),
-                _buildEditField("T-DEPOT", tDepotCtrl),
-                _buildEditField("T-OUTPOST", tOutpostCtrl),
-
-                const Divider(height: 25),
-                _buildSwitchRow("Leave (3pt)", tempIsLeave, (v) => setDialogState(() => tempIsLeave = v)),
-                _buildSwitchRow("Hang (15pt)", tempIsHanging, (v) => setDialogState(() => tempIsHanging = v)),
-
-                const Divider(height: 20),
-                const Text("ENDGAME LEVEL", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: CupertinoColors.systemGrey)),
-                const SizedBox(height: 8),
-                CupertinoSlidingSegmentedControl<int>(
-                  groupValue: tempEndgame,
-                  children: const {
-                    0: Text("None", style: TextStyle(fontSize: 11)),
-                    1: Text("L1", style: TextStyle(fontSize: 11)),
-                    2: Text("L2", style: TextStyle(fontSize: 11)),
-                    3: Text("L3", style: TextStyle(fontSize: 11)),
-                  },
-                  onValueChanged: (val) => setDialogState(() => tempEndgame = val ?? 0),
-                ),
+                Text("EDIT REPORT", style: TextStyle(color: accentPurple, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                const SizedBox(height: 4),
+                Text("Match ${report['matchNumber']} - Team ${report['teamNumber']}", style: const TextStyle(fontSize: 16)),
               ],
             ),
-          ),
-          actions: [
-            CupertinoDialogAction(child: const Text("Cancel"), onPressed: () => Navigator.pop(c)),
-            CupertinoDialogAction(
-              isDefaultAction: true,
-              child: const Text("Update"),
-              onPressed: () async {
-                Navigator.pop(c);
-                try {
-                  await http.post(
-                    Uri.parse('${Api.serverIp}/v1/rooms/update-report'),
-                    headers: {'Content-Type': 'application/json'},
-                    body: jsonEncode({
-                      'roomName': widget.roomName,
-                      'index': originalIndex,
-                      'newAutoCount': int.tryParse(autoBallCtrl.text) ?? 0,
-                      'newTeleopCount': int.tryParse(teleBallCtrl.text) ?? 0,
-                      'newIsHanging': tempIsHanging,
-                      'newIsLeave': tempIsLeave,
-                      'newEndgameLevel': tempEndgame,
-                      'newDepot': tempDepotPos, // 起始位置字串
-                      // 戰術數據同步
-                      'autoBump': int.tryParse(aBumpCtrl.text) ?? 0,
-                      'autoTrench': int.tryParse(aTrenchCtrl.text) ?? 0,
-                      'autoDepot': int.tryParse(aDepotCtrl.text) ?? 0,
-                      'autoOutpost': int.tryParse(aOutpostCtrl.text) ?? 0,
-                      'teleBump': int.tryParse(tBumpCtrl.text) ?? 0,
-                      'teleTrench': int.tryParse(tTrenchCtrl.text) ?? 0,
-                      'teleDepot': int.tryParse(tDepotCtrl.text) ?? 0,
-                      'teleOutpost': int.tryParse(tOutpostCtrl.text) ?? 0,
-                    }),
-                  );
-                  _fetchReports();
-                } catch (e) {
-                  debugPrint("❌ Update Failed: $e");
-                }
-              },
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _sectionHeader("SCORING"),
+                    _buildEditField("Auto Score", autoBallCtrl),
+                    _buildEditField("Tele Score", teleBallCtrl),
+
+                    _sectionHeader("AUTO STRATEGY"),
+                    _buildEditField("A-Bump", aBumpCtrl),
+                    _buildEditField("A-Trench", aTrenchCtrl),
+
+                    _sectionHeader("STATUS"),
+                    _buildSwitchRow("Leave (3pt)", tempIsLeave, (v) => setDialogState(() => tempIsLeave = v)),
+                    _buildSwitchRow("Auto Hang", tempIsHanging, (v) => setDialogState(() => tempIsHanging = v)),
+
+                    _sectionHeader("ENDGAME LEVEL"),
+                    const SizedBox(height: 10),
+                    CupertinoSlidingSegmentedControl<int>(
+                      backgroundColor: Colors.black26,
+                      thumbColor: primaryPurple,
+                      groupValue: tempEndgame,
+                      children: const {
+                        0: Text("None", style: TextStyle(fontSize: 11, color: Colors.white)),
+                        1: Text("L1", style: TextStyle(fontSize: 11, color: Colors.white)),
+                        2: Text("L2", style: TextStyle(fontSize: 11, color: Colors.white)),
+                        3: Text("L3", style: TextStyle(fontSize: 11, color: Colors.white)),
+                      },
+                      onValueChanged: (val) => setDialogState(() => tempEndgame = val ?? 0),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
+            actions: [
+              TextButton(child: const Text("CANCEL", style: TextStyle(color: Colors.white38)), onPressed: () => Navigator.pop(c)),
+              TextButton(
+                child: Text("UPDATE", style: TextStyle(color: accentPurple, fontWeight: FontWeight.bold)),
+                onPressed: () async {
+                  Navigator.pop(c);
+                  await _updateReport(originalIndex, {
+                    'autoBallCount': int.tryParse(autoBallCtrl.text) ?? 0,
+                    'teleopBallCount': int.tryParse(teleBallCtrl.text) ?? 0,
+                    'isHanging': tempIsHanging,
+                    'isLeave': tempIsLeave,
+                    'endgameLevel': tempEndgame,
+                    'depot': tempDepotPos,
+                    'autoBump': int.tryParse(aBumpCtrl.text) ?? 0,
+                    'autoTrench': int.tryParse(aTrenchCtrl.text) ?? 0,
+                    'teleBump': int.tryParse(tBumpCtrl.text) ?? 0,
+                  });
+                  _fetchReports();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildEditField(String label, TextEditingController controller) {
+  Future<void> _updateReport(int index, Map<String, dynamic> data) async {
+    try {
+      await http.post(
+        Uri.parse('${Api.serverIp}/v1/rooms/update-report'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'roomName': widget.roomName,
+          'index': index,
+          'newAutoCount': data['autoBallCount'],
+          'newTeleopCount': data['teleopBallCount'],
+          'newIsHanging': data['isHanging'],
+          'newIsLeave': data['isLeave'],
+          'newEndgameLevel': data['endgameLevel'],
+          'newDepot': data['depot'],
+          'autoBump': data['autoBump'],
+          'autoTrench': data['autoTrench'],
+          'teleBump': data['teleBump'],
+        }),
+      );
+    } catch (e) {
+      debugPrint("Update error: $e");
+    }
+  }
+
+  // --- UI 組件：保持與主系統一致 ---
+  Widget _sectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.only(top: 20, bottom: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(title, style: TextStyle(color: accentPurple.withOpacity(0.5), fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+      ),
+    );
+  }
+
+  Widget _buildEditField(String label, TextEditingController controller) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(12)),
       child: Row(
         children: [
-          SizedBox(width: 95, child: Text(label, style: const TextStyle(fontSize: 13, color: CupertinoColors.label))),
-          Expanded(
-            child: SizedBox(
-              height: 30,
-              child: CupertinoTextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 14),
-                decoration: BoxDecoration(color: CupertinoColors.extraLightBackgroundGray, borderRadius: BorderRadius.circular(5)),
-              ),
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 13, color: Colors.white70))),
+          SizedBox(
+            width: 60,
+            child: TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.right,
+              style: TextStyle(color: accentPurple, fontWeight: FontWeight.bold),
+              decoration: const InputDecoration(border: InputBorder.none),
             ),
           ),
         ],
@@ -239,72 +257,88 @@ class _AllConfig2State extends State<AllConfig2> {
   }
 
   Widget _buildSwitchRow(String label, bool value, Function(bool) onChanged) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 14)),
-          CupertinoSwitch(value: value, onChanged: onChanged, activeColor: CupertinoColors.activeOrange),
-        ],
-      ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 13, color: Colors.white70)),
+        CupertinoSwitch(value: value, activeColor: primaryPurple, onChanged: onChanged),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.systemGroupedBackground,
-      navigationBar: CupertinoNavigationBar(
-        middle: const Text("Correction Panel"),
-        trailing: CupertinoButton(padding: EdgeInsets.zero, onPressed: _fetchReports, child: const Icon(CupertinoIcons.refresh)),
+    return Scaffold(
+      backgroundColor: darkBg,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text("CORRECTION PANEL", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 2)),
+        centerTitle: true,
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _fetchReports),
+        ],
       ),
-      child: SafeArea(
+      body: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(16),
-              child: CupertinoSearchTextField(controller: _searchController, placeholder: "Search Match/Team", onChanged: _runFilter),
+              padding: const EdgeInsets.all(20),
+              child: CupertinoSearchTextField(
+                controller: _searchController,
+                placeholder: "Search Match or Team...",
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                onChanged: _runFilter,
+              ),
             ),
             Expanded(
               child: _isLoading
-                  ? const Center(child: CupertinoActivityIndicator())
+                  ? Center(child: CupertinoActivityIndicator(color: accentPurple))
                   : ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 itemCount: _filteredReports.length,
                 itemBuilder: (context, index) {
                   final item = _filteredReports[index];
                   bool isHanging = item['isAutoHanging'] == true || item['isAutoHanging'] == 1;
                   bool isLeave = item['isLeave'] == true || item['isLeave'] == 1;
-                  int egLevel = int.tryParse(item['endgameLevel'].toString()) ?? 0;
-                  int total = (int.tryParse(item['autoBallCount'].toString()) ?? 0) * 1 + (isLeave ? 3 : 0) + (isHanging ? 15 : 0) + (int.tryParse(item['teleopBallCount'].toString()) ?? 0) * 1 + (egLevel * 10);
+                  int total = _calculateTotal(item);
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)]),
-                    child: CupertinoListTile(
-                      padding: const EdgeInsets.all(12),
-                      title: Text("Match ${item['matchNumber']} - Team ${item['teamNumber']}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                    decoration: BoxDecoration(
+                      color: surfaceDark,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(16),
+                      title: Text("MATCH ${item['matchNumber']} - TEAM ${item['teamNumber']}",
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15)),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text("Scouter: ${item['user']} | Depot: ${item['depot'] ?? 'Near'}"),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 4),
+                          Text("Scouter: ${item['user']} | Depot: ${item['depot'] ?? 'N/A'}", style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                          const SizedBox(height: 10),
                           Wrap(
-                            spacing: 5, runSpacing: 5,
+                            spacing: 6,
                             children: [
-                              _tag("A:${item['autoBallCount']}", CupertinoColors.systemYellow),
-                              _tag("T:${item['teleopBallCount']}", CupertinoColors.systemBlue),
-                              if (item['autoBump'] != null && item['autoBump'] > 0) _tag("BUMP", CupertinoColors.systemGrey),
-                              if (item['autoTrench'] != null && item['autoTrench'] > 0) _tag("TRENCH", CupertinoColors.systemGrey),
-                              if (isLeave) _tag("Left", CupertinoColors.activeOrange),
-                              if (isHanging) _tag("Hang", CupertinoColors.systemGreen),
+                              _tag("AUTO:${item['autoBallCount']}", Colors.orangeAccent),
+                              _tag("TELE:${item['teleopBallCount']}", Colors.blueAccent),
+                              if (isLeave) _tag("LEFT", accentPurple),
+                              if (isHanging) _tag("HANG", Colors.greenAccent),
                             ],
                           )
                         ],
                       ),
-                      additionalInfo: Text("$total pt", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: CupertinoColors.activeBlue)),
-                      trailing: const Icon(CupertinoIcons.pencil_circle, color: CupertinoColors.systemGrey),
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text("$total", style: TextStyle(color: accentPurple, fontSize: 24, fontWeight: FontWeight.w900, fontFamily: 'monospace')),
+                          const Text("PTS", style: TextStyle(color: Colors.white24, fontSize: 8, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
                       onTap: () => _editReport(index),
                     ),
                   );
@@ -317,11 +351,22 @@ class _AllConfig2State extends State<AllConfig2> {
     );
   }
 
+  int _calculateTotal(dynamic item) {
+    bool isHanging = item['isAutoHanging'] == true || item['isAutoHanging'] == 1;
+    bool isLeave = item['isLeave'] == true || item['isLeave'] == 1;
+    int egLevel = int.tryParse(item['endgameLevel'].toString()) ?? 0;
+    return (int.tryParse(item['autoBallCount'].toString()) ?? 0) +
+        (isLeave ? 0 : 0) +
+        (isHanging ? 15 : 0) +
+        (int.tryParse(item['teleopBallCount'].toString()) ?? 0) +
+        (egLevel * 10);
+  }
+
   Widget _tag(String text, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-      child: Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(6), border: Border.all(color: color.withOpacity(0.2))),
+      child: Text(text, style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold)),
     );
   }
 }

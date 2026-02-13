@@ -5,11 +5,13 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
-// Ensure these paths match your project structure
+// 確保路徑對應你的專案結構
 import 'package:flutter_application_1/ALLIENCE/MyHomePage.dart';
 import 'package:flutter_application_1/ALLIENCE/RoomListPage.dart';
-import 'ALLIENCE/api.dart';
-import 'ALLIENCE/config/pubicconfig.dart';
+import 'package:flutter_application_1/ALLIENCE/api.dart';
+import 'package:flutter_application_1/ALLIENCE/config/pubicconfig.dart';
+
+import 'ALLIENCE/config/personconfig.dart';
 
 final GoogleSignIn _googleSignIn = GoogleSignIn(
   scopes: ['email', 'profile'],
@@ -20,6 +22,12 @@ void main() async {
   await loadSavedConfig();
   final prefs = await SharedPreferences.getInstance();
   final String? savedUsername = prefs.getString('username');
+
+  // 設定狀態列為透明且文字為亮色（適合深色背景）
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+  ));
 
   runApp(MyApp(startPage: savedUsername == null ? const RegisterPage() : const MyHomePage()));
 }
@@ -32,7 +40,7 @@ Future<void> loadSavedConfig() async {
       Api.serverIp = savedIp;
     }
   } catch (e) {
-    print("Error loading configuration: $e");
+    debugPrint("Error loading configuration: $e");
   }
 }
 
@@ -42,51 +50,46 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const primaryPurple = Color(0xFF7E57C2);
+    const surfaceDark = Color(0xFF111015);
+
     return MaterialApp(
-      title: 'Scouting App',
+      title: 'FRC Scouting',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        // Using Purple as the seed color for a modern, light palette
-        colorSchemeSeed: const Color(0xFF673AB7),
-        brightness: Brightness.light,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: surfaceDark,
 
-        // Global Card optimization
-        cardTheme: CardThemeData(
-          elevation: 0, // Remove heavy shadows
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: BorderSide(color: Colors.grey.withOpacity(0.1)),
-          ),
+        // 全局文字主題
+        textTheme: const TextTheme(
+          bodyMedium: TextStyle(color: Colors.white70),
         ),
 
-        // Global Button style (Cleaner weight)
+        // 修正後的彈窗主題
+        dialogTheme: DialogThemeData(
+          backgroundColor: const Color(0xFF1C1B21),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          titleTextStyle: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+          contentTextStyle: const TextStyle(color: Colors.white70),
+        ),
+
+        // 按鈕全局樣式
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
+            backgroundColor: primaryPurple,
+            foregroundColor: Colors.white,
             elevation: 0,
-            textStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           ),
-        ),
-
-        // Global AppBar style
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          titleTextStyle: TextStyle(
-            color: Colors.black87,
-            fontSize: 18,
-            fontWeight: FontWeight.w400,
-          ),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
         ),
       ),
-      home: startPage,
+      home: startPage, // 確保 home 在 MaterialApp 之下
     );
   }
 }
 
+// --- 註冊頁面 ---
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
 
@@ -95,8 +98,10 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
-  final String serverIp = Api.serverIp;
   bool _isLoading = false;
+  final Color primaryPurple = const Color(0xFF7E57C2);
+  final Color accentPurple = const Color(0xFFB388FF);
+  final Color surfaceDark = const Color(0xFF111015);
 
   @override
   void initState() {
@@ -118,7 +123,7 @@ class _RegisterPageState extends State<RegisterPage> {
       final String photoUrl = googleUser.photoUrl ?? "";
 
       final response = await http.post(
-        Uri.parse('$serverIp/v1/auth/google-login'),
+        Uri.parse('${Api.serverIp}/v1/auth/google-login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'username': name,
@@ -139,7 +144,7 @@ class _RegisterPageState extends State<RegisterPage> {
         );
       }
     } catch (error) {
-      _showError("An error occurred during sign-in");
+      _showError("Node Sync Failed: Check Server IP in Settings.");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -149,13 +154,12 @@ class _RegisterPageState extends State<RegisterPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("Notice", style: TextStyle(fontWeight: FontWeight.w400)),
+        title: Text("Notice", style: TextStyle(color: accentPurple, fontWeight: FontWeight.bold)),
         content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("OK"),
+            child: Text("OK", style: TextStyle(color: accentPurple)),
           )
         ],
       ),
@@ -165,87 +169,67 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: surfaceDark,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, color: Colors.white54),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const PersonConfigPage()),
+              );
+            },
+          ),
+          const SizedBox(width: 10),
+        ],
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(40.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Logo Section
+                // Logo with Glow
                 Container(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(25),
                   decoration: BoxDecoration(
-                    color: Colors.deepPurple.withOpacity(0.03),
+                    color: primaryPurple.withOpacity(0.05),
                     shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(color: primaryPurple.withOpacity(0.1), blurRadius: 40, spreadRadius: 5)
+                    ],
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(40),
                     child: Image.asset(
                       'assets/images/favicon.png',
-                      width: 110,
-                      height: 110,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.blur_on, size: 100, color: Colors.deepPurple);
-                      },
+                      width: 120, height: 120,
+                      errorBuilder: (context, error, stackTrace) => Icon(Icons.bolt, size: 100, color: accentPurple),
                     ),
                   ),
                 ),
-                const SizedBox(height: 48),
-
-                // Title Section
-                const Text(
-                  "FRC7632 Scout",
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  "Please complete Google verification to begin",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w300,
-                    color: Colors.black45,
-                  ),
-                ),
-                const SizedBox(height: 72),
-
-                // Login Button
-                SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: _isLoading
-                      ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                      : ElevatedButton.icon(
-                    onPressed: _handleGoogleSignIn,
-                    icon: const Icon(Icons.mail_outline, size: 20),
-                    label: const Text("Sign in with Google"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black87,
-                      side: BorderSide(color: Colors.grey.shade300, width: 0.8),
-                      elevation: 0,
+                const SizedBox(height: 50),
+                const Text("FRC7632 Scout", style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                const SizedBox(height: 80),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 58,
+                    child: _isLoading
+                        ? Center(child: CircularProgressIndicator(color: accentPurple))
+                        : ElevatedButton.icon(
+                      onPressed: _handleGoogleSignIn,
+                      icon: const Icon(Icons.login_rounded),
+                      label: const Text("SIGN IN WITH GOOGLE", style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ),
-                const SizedBox(height: 48),
-
-                // Footer Version
-                const Text(
-                  "Version 2.0.0",
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w200,
-                    color: Colors.grey,
-                    letterSpacing: 2,
-                  ),
-                )
+                const SizedBox(height: 60),
+                Text("VERSION 2.0.1", style: TextStyle(fontSize: 10, color: Colors.white.withOpacity(0.15), letterSpacing: 4)),
               ],
             ),
           ),

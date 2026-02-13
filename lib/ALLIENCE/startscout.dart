@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,9 +19,16 @@ class StartScout extends StatefulWidget {
 }
 
 class _StartScoutState extends State<StartScout> {
+  // --- UI Styling ---
+  final Color darkBg = const Color(0xFF0F0E13);
+  final Color surfaceDark = const Color(0xFF1C1B21);
+  final Color primaryPurple = const Color(0xFF7E57C2);
+  final Color accentPurple = const Color(0xFFB388FF);
+
+  // --- State Data ---
   final TextEditingController _teamController = TextEditingController();
   int _selectedAlliance = 0; // 0: Red, 1: Blue
-  String _assignedPosition = "Checking Assignment...";
+  String _assignedPosition = "Syncing...";
   String _matchNumber = "-";
   List<dynamic> _activeUsers = [];
   bool _isChecking = true;
@@ -30,17 +38,14 @@ class _StartScoutState extends State<StartScout> {
   String? _currentUserName;
   Timer? _refreshTimer;
 
-  final Color primaryPurple = const Color(0xFF673AB7);
-  final String serverIp = Api.serverIp;
-
   @override
   void initState() {
     super.initState();
     _initData();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    // Refresh every 4 seconds to sync match changes and locking status
+    _refreshTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
       if (mounted) _checkAssignment();
     });
-
   }
 
   @override
@@ -50,6 +55,8 @@ class _StartScoutState extends State<StartScout> {
     super.dispose();
   }
 
+  // --- Logic & API ---
+
   Future<void> _initData() async {
     final prefs = await SharedPreferences.getInstance();
     _currentUserName = prefs.getString('username');
@@ -57,7 +64,7 @@ class _StartScoutState extends State<StartScout> {
 
     try {
       await http.post(
-        Uri.parse('$serverIp/v1/rooms/join'),
+        Uri.parse('${Api.serverIp}/v1/rooms/join'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'roomName': widget.roomName,
@@ -66,7 +73,7 @@ class _StartScoutState extends State<StartScout> {
         }),
       ).timeout(const Duration(seconds: 5));
     } catch (e) {
-      debugPrint("Join room connection failed: $e");
+      debugPrint("Join room failed: $e");
     }
 
     await _checkRoomAuthority();
@@ -76,26 +83,23 @@ class _StartScoutState extends State<StartScout> {
 
   Future<void> _checkRoomAuthority() async {
     try {
-      final response = await http.get(Uri.parse('$serverIp/v1/rooms'));
+      final response = await http.get(Uri.parse('${Api.serverIp}/v1/rooms'));
       if (response.statusCode == 200) {
         final List rooms = jsonDecode(response.body);
-        final currentRoom = rooms.firstWhere(
-                (r) => r['name'] == widget.roomName,
-            orElse: () => null
-        );
+        final currentRoom = rooms.firstWhere((r) => r['name'] == widget.roomName, orElse: () => null);
         if (currentRoom != null && currentRoom['owner'] == _currentUserName) {
           setState(() => _isAdmin = true);
         }
       }
     } catch (e) {
-      debugPrint("Permission check failed: $e");
+      debugPrint("Authority check failed");
     }
   }
 
   Future<void> _checkAssignment() async {
     try {
-      final assignUrl = '$serverIp/v1/rooms/assignments?roomName=${widget.roomName}';
-      final reportUrl = '$serverIp/v1/rooms/all-reports?roomName=${widget.roomName}';
+      final assignUrl = '${Api.serverIp}/v1/rooms/assignments?roomName=${widget.roomName}';
+      final reportUrl = '${Api.serverIp}/v1/rooms/all-reports?roomName=${widget.roomName}';
 
       final responses = await Future.wait([
         http.get(Uri.parse(assignUrl)).timeout(const Duration(seconds: 3)),
@@ -115,8 +119,16 @@ class _StartScoutState extends State<StartScout> {
           if (user == _currentUserName) myPos = pos;
         });
 
-        bool recorded = reports.any((r) =>
-        r['matchNumber'].toString() == remoteMatch && r['position'] == myPos);
+        // 🔥 Locking Logic: Check if current user has already submitted for this match/position
+        bool recorded = reports.any((r) {
+          final String rMatch = r['matchNumber']?.toString() ?? "";
+          final String rPos = r['position']?.toString() ?? "";
+          final String rScouter = (r['scouter'] ?? r['user'] ?? "").toString();
+
+          return rMatch == remoteMatch &&
+              rPos == myPos &&
+              rScouter == _currentUserName;
+        });
 
         if (mounted) {
           setState(() {
@@ -127,85 +139,106 @@ class _StartScoutState extends State<StartScout> {
             _isServerDown = false;
 
             if (myPos != null) {
-              _teamController.text = teamsMap[myPos]?.toString() ?? "";
+              _teamController.text = teamsMap[myPos]?.toString() ?? "---";
               _selectedAlliance = _assignedPosition.startsWith('Red') ? 0 : 1;
+            } else {
+              _teamController.text = "---";
             }
           });
         }
       }
     } catch (e) {
       if (mounted) setState(() => _isServerDown = true);
+      debugPrint("Sync Error: $e");
     }
   }
 
-  void _showInstruction(String reason) {
-    showDialog(
-      context: context,
-      builder: (c) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("Notice", style: TextStyle(fontWeight: FontWeight.w500)),
-        content: Text(reason),
-        actions: [
-          TextButton(child: const Text("Got it"), onPressed: () => Navigator.pop(c)),
-        ],
-      ),
-    );
-  }
+  // --- UI Components ---
 
   @override
   Widget build(BuildContext context) {
-    final Color allianceColor = _selectedAlliance == 0 ? Colors.red.shade600 : Colors.blue.shade600;
+    final Color allianceColor = _selectedAlliance == 0 ? Colors.redAccent : Colors.blueAccent;
     final bool isTeamEmpty = _teamController.text.isEmpty || _teamController.text == "---";
     final bool canStart = !isTeamEmpty && !_assignedPosition.contains("Not") && !_hasRecorded && !_isServerDown;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE),
-      appBar: AppBar(
-        title: Text("Match $_matchNumber", style: const TextStyle(fontWeight: FontWeight.w400)),
-        centerTitle: true,
-        actions: [
-          if (_isAdmin)
-            IconButton(
-              icon: const Icon(Icons.settings_outlined),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => AdminConfig(roomName: widget.roomName))),
-            ),
-        ],
-      ),
+      backgroundColor: darkBg,
       drawer: _buildSideDrawer(),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16),
-          child: Column(
-            children: [
-              if (_isServerDown) _buildConnectionErrorTile(),
-              _buildAssignmentCard(allianceColor),
-              const SizedBox(height: 32),
-              _buildTeamDisplay(isTeamEmpty, allianceColor),
-              const SizedBox(height: 48),
-              _buildMainActionButton(canStart, isTeamEmpty),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: FilledButton.tonal(
-                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => AllConfig2(roomName: widget.roomName))),
-                  child: const Text("View / Edit All Records", style: TextStyle(fontWeight: FontWeight.w400)),
-                ),
-              ),
-              if (_isChecking)
-                const Padding(
-                  padding: EdgeInsets.only(top: 24),
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-            ],
+      appBar: _buildAppBar(),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0, -0.6),
+            radius: 1.2,
+            colors: [allianceColor.withOpacity(0.12), darkBg],
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Column(
+              children: [
+                if (_isServerDown) _buildConnectionErrorTile(),
+                _buildAssignmentCard(allianceColor),
+                const SizedBox(height: 32),
+                _buildTeamDisplay(isTeamEmpty, allianceColor),
+                const SizedBox(height: 48),
+                _buildMainActionButton(canStart, isTeamEmpty, allianceColor),
+                const SizedBox(height: 16),
+                _buildRecordButton(),
+                if (_isChecking)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 24),
+                    child: CircularProgressIndicator(color: Color(0xFFB388FF), strokeWidth: 2),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70, size: 20),
+        onPressed: () => Navigator.pop(context),
+      ),
+      title: Text("QUAL MATCH $_matchNumber",
+          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 2, color: Colors.white)),
+      centerTitle: true,
+      actions: [
+        if (_isAdmin)
+          IconButton(
+            icon: Icon(Icons.admin_panel_settings_outlined, color: accentPurple),
+            onPressed: () async {
+              final bool? shouldPopToRoot = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (c) => AdminConfig(roomName: widget.roomName))
+              );
+              if (shouldPopToRoot == true && mounted) {
+                Navigator.pop(context);
+              } else {
+                _checkAssignment();
+              }
+            },
+          ),
+        Builder(builder: (context) {
+          return IconButton(
+            icon: Icon(Icons.group_rounded, color: accentPurple),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          );
+        }),
+      ],
+    );
+  }
+
   Widget _buildSideDrawer() {
     return Drawer(
+      backgroundColor: surfaceDark,
       child: Column(
         children: [
           DrawerHeader(
@@ -214,10 +247,10 @@ class _StartScoutState extends State<StartScout> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.group_outlined, size: 40, color: primaryPurple),
+                  Icon(Icons.hub_rounded, size: 40, color: accentPurple),
                   const SizedBox(height: 12),
-                  Text("Members (${_activeUsers.length})",
-                      style: TextStyle(color: primaryPurple, fontSize: 18, fontWeight: FontWeight.w400)),
+                  const Text("ROOM MEMBERS", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                  Text("${_activeUsers.length} Active Users", style: TextStyle(color: accentPurple, fontSize: 12)),
                 ],
               ),
             ),
@@ -233,15 +266,17 @@ class _StartScoutState extends State<StartScout> {
 
                 return ListTile(
                   leading: CircleAvatar(
-                    radius: 18,
+                    radius: 16,
                     backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
-                    backgroundColor: primaryPurple.withOpacity(0.1),
-                    child: (photoUrl == null || photoUrl.isEmpty)
-                        ? Text(name[0].toUpperCase(), style: TextStyle(color: primaryPurple, fontSize: 12))
-                        : null,
+                    backgroundColor: Colors.white10,
+                    child: (photoUrl == null || photoUrl.isEmpty) ? Text(name[0], style: TextStyle(color: accentPurple)) : null,
                   ),
-                  title: Text(name, style: const TextStyle(fontSize: 15)),
-                  trailing: name == _currentUserName ? const Badge(label: Text("You")) : null,
+                  title: Text(name, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                  trailing: name == _currentUserName ? Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(color: primaryPurple, borderRadius: BorderRadius.circular(10)),
+                    child: const Text("YOU", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                  ) : null,
                 );
               },
             ),
@@ -251,39 +286,20 @@ class _StartScoutState extends State<StartScout> {
     );
   }
 
-  Widget _buildConnectionErrorTile() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.shade100),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.wifi_off_rounded, color: Colors.red.shade700, size: 20),
-          const SizedBox(width: 12),
-          Text("Server Connection Failed", style: TextStyle(color: Colors.red.shade700, fontSize: 14)),
-        ],
-      ),
-    );
-  }
-
   Widget _buildAssignmentCard(Color allianceColor) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 30),
       decoration: BoxDecoration(
-        color: allianceColor.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: allianceColor.withOpacity(0.15)),
+        color: surfaceDark,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: allianceColor.withOpacity(0.3), width: 2),
       ),
       child: Column(
         children: [
-          Text("Your Location", style: TextStyle(color: allianceColor.withOpacity(0.7), fontSize: 14)),
+          const Text("ASSIGNED POSITION", style: TextStyle(color: Colors.white38, fontSize: 12, letterSpacing: 2, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          Text(_assignedPosition, style: TextStyle(fontSize: 42, fontWeight: FontWeight.w500, color: allianceColor)),
+          Text(_assignedPosition, style: TextStyle(fontSize: 48, fontWeight: FontWeight.w900, color: allianceColor, letterSpacing: -1)),
         ],
       ),
     );
@@ -292,72 +308,126 @@ class _StartScoutState extends State<StartScout> {
   Widget _buildTeamDisplay(bool isTeamEmpty, Color allianceColor) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 32),
+      padding: const EdgeInsets.symmetric(vertical: 40),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+        color: surfaceDark,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
       child: Column(
         children: [
-          const Text("Team Number", style: TextStyle(color: Colors.black38, fontSize: 13)),
+          const Text("TARGET TEAM", style: TextStyle(color: Colors.white38, fontSize: 12, letterSpacing: 2, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text(
-            isTeamEmpty ? "---" : _teamController.text,
-            style: TextStyle(fontSize: 64, fontWeight: FontWeight.w300, color: isTeamEmpty ? Colors.grey[300] : allianceColor),
+            isTeamEmpty ? "WAITING" : _teamController.text,
+            style: TextStyle(fontSize: 72, fontWeight: FontWeight.w200, color: isTeamEmpty ? Colors.white10 : Colors.white, fontFamily: 'monospace'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildMainActionButton(bool canStart, bool isTeamEmpty) {
+  Widget _buildMainActionButton(bool canStart, bool isTeamEmpty, Color allianceColor) {
+    return SizedBox(
+      width: double.infinity,
+      height: 72,
+      child: ElevatedButton(
+        onPressed: _hasRecorded
+            ? () {
+          HapticFeedback.vibrate();
+          _showInstruction("Data for this match has already been submitted.");
+        }
+            : (canStart ? () => _goScouting() : () {
+          HapticFeedback.vibrate();
+          if (_isServerDown) _showInstruction("Cannot connect to server.");
+          else if (_assignedPosition.contains("Not")) _showInstruction("Waiting for assignment from admin...");
+          else if (isTeamEmpty) _showInstruction("Teams not set for this match.");
+        }),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _hasRecorded
+              ? Colors.green.withOpacity(0.2)
+              : (canStart ? primaryPurple : Colors.white10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: _hasRecorded ? const BorderSide(color: Colors.greenAccent, width: 1) : BorderSide.none,
+          ),
+        ),
+        child: Text(
+            _hasRecorded ? "✓ DATA RECORDED" : (canStart ? "START SCOUTING" : "LOCKED"),
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.5,
+                color: _hasRecorded ? Colors.greenAccent : Colors.white
+            )
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecordButton() {
     return SizedBox(
       width: double.infinity,
       height: 60,
-      child: FilledButton(
-        onPressed: canStart ? () => _goScouting() : () {
-          if (_isServerDown) _showInstruction("Server connection failed. Please check your network/IP settings.");
-          else if (_assignedPosition.contains("Not")) _showInstruction("The administrator has not assigned you a location yet.");
-          else if (isTeamEmpty) _showInstruction("Team numbers for this match have not been set yet.");
-          else if (_hasRecorded) _showInstruction("You have already recorded a report for this match.");
-        },
-        style: FilledButton.styleFrom(
-          backgroundColor: _hasRecorded ? Colors.green.shade600 : primaryPurple,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: OutlinedButton.icon(
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => AllConfig2(roomName: widget.roomName))),
+        icon: const Icon(Icons.history_rounded, size: 20),
+        label: const Text("VIEW ALL MATCH RECORDS", style: TextStyle(fontWeight: FontWeight.bold)),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.white70,
+          side: BorderSide(color: Colors.white.withOpacity(0.1)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         ),
-        child: Text(_hasRecorded ? "Report Submitted" : "Start Scouting",
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
+      ),
+    );
+  }
+
+  Widget _buildConnectionErrorTile() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.wifi_off_rounded, color: Colors.redAccent, size: 16),
+          SizedBox(width: 8),
+          Text("OFFLINE: CHECK SERVER CONFIG", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+        ],
       ),
     );
   }
 
   void _goScouting() {
+    HapticFeedback.heavyImpact();
     showDialog(
       context: context,
       builder: (c) => AlertDialog(
+        backgroundColor: surfaceDark,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text("Confirm Details", style: TextStyle(fontWeight: FontWeight.w500)),
+        title: const Text("CONFIRM DETAILS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildDialogInfoRow("Match", "Qualification $_matchNumber"),
-            _buildDialogInfoRow("Location", _assignedPosition),
+            _buildDialogInfoRow("Match", "#$_matchNumber"),
+            _buildDialogInfoRow("Position", _assignedPosition),
             _buildDialogInfoRow("Team", _teamController.text),
           ],
         ),
         actions: [
-          TextButton(child: const Text("Cancel"), onPressed: () => Navigator.pop(c)),
+          TextButton(child: const Text("CANCEL"), onPressed: () => Navigator.pop(c)),
           FilledButton(
             onPressed: () {
               Navigator.pop(c);
               Navigator.push(context, MaterialPageRoute(builder: (context) => ScoutingPage(
-                roomName: widget.roomName, matchNumber: _matchNumber, teamNumber: _teamController.text,
-                position: _assignedPosition, userName: _currentUserName ?? "Unknown",
+                roomName: widget.roomName,
+                matchNumber: _matchNumber,
+                teamNumber: _teamController.text,
+                position: _assignedPosition,
+                userName: _currentUserName ?? "Unknown",
               )));
             },
-            child: const Text("Start"),
+            child: const Text("READY"),
           ),
         ],
       ),
@@ -366,16 +436,22 @@ class _StartScoutState extends State<StartScout> {
 
   Widget _buildDialogInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(color: Colors.black87, fontSize: 15),
-          children: [
-            TextSpan(text: "$label: ", style: const TextStyle(color: Colors.black54)),
-            TextSpan(text: value, style: const TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white38)),
+          Text(value, style: TextStyle(color: accentPurple, fontWeight: FontWeight.bold, fontSize: 18)),
+        ],
       ),
     );
+  }
+
+  void _showInstruction(String reason) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(reason),
+      backgroundColor: surfaceDark,
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 }

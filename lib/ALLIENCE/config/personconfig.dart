@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../api.dart'; // 確保路徑正確
+import '../api.dart';
 
 class PersonConfigPage extends StatefulWidget {
   const PersonConfigPage({super.key});
@@ -11,10 +12,12 @@ class PersonConfigPage extends StatefulWidget {
 
 class _PersonConfigPageState extends State<PersonConfigPage> {
   final TextEditingController _ipController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
 
-  // 使用與 MyHomePage 一致的紫色調
-  final Color primaryPurple = const Color(0xFF673AB7);
+  // --- 深色配色方案 ---
+  final Color darkBg = const Color(0xFF0F0E13);
+  final Color surfaceDark = const Color(0xFF1C1B21);
+  final Color accentPurple = const Color(0xFFB388FF);
+  final Color primaryPurple = const Color(0xFF7E57C2);
 
   @override
   void initState() {
@@ -27,15 +30,22 @@ class _PersonConfigPageState extends State<PersonConfigPage> {
     await prefs.setString('custom_ip', newIp);
     Api.serverIp = newIp;
 
+    HapticFeedback.mediumImpact(); // 加入物理回饋
+
     if (!mounted) return;
 
-    // 使用 Material 的 SnackBar 代替彈窗，操作更流暢不中斷
+    // 同步深色風格的 SnackBar
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text("Server IP updated to: $newIp"),
+        content: Text(
+          "CORE SYNC: IP updated to $newIp",
+          style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1),
+        ),
         backgroundColor: primaryPurple,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(20),
       ),
     );
   }
@@ -43,116 +53,162 @@ class _PersonConfigPageState extends State<PersonConfigPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE), // 延用主頁的清爽背景
+      backgroundColor: darkBg,
       appBar: AppBar(
-        title: const Text("Profile Settings", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text(
+          "SYSTEM CONFIG",
+          style: TextStyle(letterSpacing: 2, fontWeight: FontWeight.w900, fontSize: 14),
+        ),
         centerTitle: true,
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "NETWORK CONFIGURATION",
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black54,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(height: 16),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0, -0.6),
+            radius: 1.2,
+            colors: [primaryPurple.withOpacity(0.05), darkBg],
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildSectionHeader("NETWORK PROTOCOL"),
+                const SizedBox(height: 16),
 
-              // 使用 Card 包裹設定項，符合 M3 區塊化視覺
-              Card(
-                elevation: 0,
-                color: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(color: Colors.grey.withOpacity(0.1)),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+                // 核心配置卡片
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: surfaceDark,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 15,
+                        offset: const Offset(0, 8),
+                      )
+                    ],
+                  ),
                   child: Column(
                     children: [
                       // Server IP 輸入框
                       TextField(
                         controller: _ipController,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                         decoration: InputDecoration(
-                          labelText: "Server IP / URL",
+                          labelText: "Server Node IP / URL",
+                          labelStyle: TextStyle(color: accentPurple.withOpacity(0.5), fontSize: 12),
                           hintText: "e.g. 192.168.1.100",
-                          prefixIcon: Icon(Icons.lan_outlined, color: primaryPurple),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                          hintStyle: const TextStyle(color: Colors.white10),
+                          prefixIcon: Icon(Icons.lan_outlined, color: accentPurple),
                           filled: true,
-                          fillColor: const Color(0xFFFBFBFF),
+                          fillColor: Colors.black26,
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: Colors.white.withOpacity(0.05)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: accentPurple, width: 2),
+                          ),
                         ),
                         onSubmitted: (value) => _saveIp(value),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
 
                       // 還原預設按鈕
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            shape: BoxShape.circle,
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            setState(() => _ipController.text = Api.defaultIp);
+                            _saveIp(Api.defaultIp);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.05),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.restart_alt_rounded, color: Colors.white38, size: 20),
+                                ),
+                                const SizedBox(width: 12),
+                                const Text("Factory Reset IP", style: TextStyle(color: Colors.white38, fontSize: 13)),
+                                const Spacer(),
+                                const Icon(Icons.chevron_right, color: Colors.white10, size: 18),
+                              ],
+                            ),
                           ),
-                          child: const Icon(Icons.restart_alt_rounded, color: Colors.grey),
                         ),
-                        title: const Text("Reset to Default", style: TextStyle(fontSize: 14)),
-                        trailing: const Icon(Icons.chevron_right, size: 20),
-                        onTap: () {
-                          setState(() {
-                            _ipController.text = Api.defaultIp;
-                          });
-                          _saveIp(Api.defaultIp);
-                        },
                       ),
                     ],
                   ),
                 ),
-              ),
 
-              const SizedBox(height: 12),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Text(
-                  "Changes take effect immediately. Please ensure your device is on the same network as the server.",
-                  style: TextStyle(fontSize: 12, color: Colors.black38, height: 1.4),
+                const SizedBox(height: 16),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    "Note: Ensure the target node is accessible via local mesh or cloud relay before synchronizing.",
+                    style: TextStyle(fontSize: 11, color: Colors.white24, height: 1.5),
+                  ),
                 ),
-              ),
 
-              const SizedBox(height: 40),
+                const SizedBox(height: 48),
 
-              // 儲存按鈕 - 使用 ElevatedButton
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: () => _saveIp(_ipController.text),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryPurple,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
+                // 儲存按鈕
+                Container(
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      BoxShadow(
+                        color: primaryPurple.withOpacity(0.3),
+                        blurRadius: 25,
+                        offset: const Offset(0, 8),
+                      )
+                    ],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: () => _saveIp(_ipController.text),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryPurple,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      minimumSize: const Size(double.infinity, 60),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    ),
+                    child: const Text(
+                      "SYNC CONFIGURATION",
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1.5),
                     ),
                   ),
-                  child: const Text(
-                    "Save Changes",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.bold,
+        color: accentPurple.withOpacity(0.5),
+        letterSpacing: 2,
       ),
     );
   }
