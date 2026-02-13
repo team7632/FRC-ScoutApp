@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'AdminConfig.dart';
+import 'RoomListPage.dart';
 import 'allconfig2.dart';
 import 'api.dart';
 import 'scouting.dart';
@@ -205,7 +206,15 @@ class _StartScoutState extends State<StartScout> {
       elevation: 0,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70, size: 20),
-        onPressed: () => Navigator.pop(context),
+        onPressed: () {
+          HapticFeedback.mediumImpact();
+          // 強制銷毀當前所有路由，跳轉到 RoomListPage
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (context) => const RoomListPage()),
+                (route) => false, // false 表示清空所有歷史紀錄
+          );
+        },
       ),
       title: Text("QUAL MATCH $_matchNumber",
           style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 2, color: Colors.white)),
@@ -219,8 +228,14 @@ class _StartScoutState extends State<StartScout> {
                   context,
                   MaterialPageRoute(builder: (c) => AdminConfig(roomName: widget.roomName))
               );
+
               if (shouldPopToRoot == true && mounted) {
-                Navigator.pop(context);
+                // 管理員設定後若需要強制跳轉
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const RoomListPage()),
+                      (route) => false,
+                );
               } else {
                 _checkAssignment();
               }
