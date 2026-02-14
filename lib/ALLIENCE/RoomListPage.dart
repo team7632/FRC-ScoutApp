@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // 加入震動回饋
 import 'package:http/http.dart' as http;
 import 'package:flutter_application_1/ALLIENCE/startscout.dart';
+import 'MyHomePage.dart';
 import 'api.dart';
 
 class RoomListPage extends StatefulWidget {
@@ -83,24 +84,32 @@ class _RoomListPageState extends State<RoomListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: darkBg,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text("ROOM EXPLORER",
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 2)),
-        centerTitle: true,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(70),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 15),
-            child: _buildSearchBar(),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70, size: 20),
+            onPressed: () {
+              HapticFeedback.mediumImpact();
+              // 強制跳轉回首頁並清空所有路由棧
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const MyHomePage()), // 指向你的首頁
+                    (route) => false,
+              );
+            },
+          ),
+          title: const Text("ROOM EXPLORER",
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 2)),
+          centerTitle: true,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(70),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 15),
+              child: _buildSearchBar(),
+            ),
           ),
         ),
-      ),
       body: Container(
         decoration: BoxDecoration(
           gradient: RadialGradient(
