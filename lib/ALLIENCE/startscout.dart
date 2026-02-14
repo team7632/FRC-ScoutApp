@@ -208,11 +208,11 @@ class _StartScoutState extends State<StartScout> {
         icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70, size: 20),
         onPressed: () {
           HapticFeedback.mediumImpact();
-          // 強制銷毀當前所有路由，跳轉到 RoomListPage
+
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => const RoomListPage()),
-                (route) => false, // false 表示清空所有歷史紀錄
+                (route) => false,
           );
         },
       ),
@@ -230,7 +230,7 @@ class _StartScoutState extends State<StartScout> {
               );
 
               if (shouldPopToRoot == true && mounted) {
-                // 管理員設定後若需要強制跳轉
+
                 Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(builder: (context) => const RoomListPage()),

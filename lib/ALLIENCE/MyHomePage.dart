@@ -26,16 +26,16 @@ class _MyHomePageState extends State<MyHomePage> {
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   String _currentMode = "Scout Mode";
 
-  // --- 深色主題配色 ---
-  final Color darkBg = const Color(0xFF0F0E13); // 深黑色背景
-  final Color surfaceDark = const Color(0xFF1C1B21); // 表面色
-  final Color primaryPurple = const Color(0xFF7E57C2); // 主色調紫
-  final Color accentPurple = const Color(0xFFB388FF); // 亮紫色
+
+  final Color darkBg = const Color(0xFF0F0E13);
+  final Color surfaceDark = const Color(0xFF1C1B21);
+  final Color primaryPurple = const Color(0xFF7E57C2);
+  final Color accentPurple = const Color(0xFFB388FF);
 
   @override
   void initState() {
     super.initState();
-    // 設定狀態列顏色
+
     SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.light);
     _loadUserInfo();
   }
@@ -195,7 +195,7 @@ class _MyHomePageState extends State<MyHomePage> {
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Column(
                 children: [
-                  // 模式顯示
+
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                     decoration: BoxDecoration(color: primaryPurple.withOpacity(0.1), borderRadius: BorderRadius.circular(20), border: Border.all(color: primaryPurple.withOpacity(0.3))),
@@ -220,7 +220,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   Text("Welcome back", style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 16)),
                   const SizedBox(height: 50),
 
-                  // 按鈕區
+
                   _buildMenuButton(
                     icon: Icons.add_rounded,
                     label: "Create New Room",
@@ -288,5 +288,5 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 }
 
-// 補上深紫色定義
+
 const Color deepPurple = Color(0xFF4527A0);

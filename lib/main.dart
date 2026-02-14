@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
-// 確保路徑對應你的專案結構
+
 import 'package:flutter_application_1/ALLIENCE/MyHomePage.dart';
 import 'package:flutter_application_1/ALLIENCE/RoomListPage.dart';
 import 'package:flutter_application_1/ALLIENCE/api.dart';
@@ -23,7 +23,7 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   final String? savedUsername = prefs.getString('username');
 
-  // 設定狀態列為透明且文字為亮色（適合深色背景）
+
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
@@ -61,12 +61,12 @@ class MyApp extends StatelessWidget {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: surfaceDark,
 
-        // 全局文字主題
+
         textTheme: const TextTheme(
           bodyMedium: TextStyle(color: Colors.white70),
         ),
 
-        // 修正後的彈窗主題
+
         dialogTheme: DialogThemeData(
           backgroundColor: const Color(0xFF1C1B21),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -74,7 +74,6 @@ class MyApp extends StatelessWidget {
           contentTextStyle: const TextStyle(color: Colors.white70),
         ),
 
-        // 按鈕全局樣式
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: primaryPurple,
@@ -84,12 +83,12 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: startPage, // 確保 home 在 MaterialApp 之下
+      home: startPage,
     );
   }
 }
 
-// --- 註冊頁面 ---
+
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
 

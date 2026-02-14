@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'api.dart';
 
-// --- 同步深色路徑繪製器 ---
+
 class PathPainter extends CustomPainter {
   final List<Offset?> normalizedPoints;
   final Color color;
@@ -45,7 +45,7 @@ class AllConfig2 extends StatefulWidget {
 }
 
 class _AllConfig2State extends State<AllConfig2> {
-  // --- 深色配色方案 ---
+
   final Color darkBg = const Color(0xFF0F0E13);
   final Color surfaceDark = const Color(0xFF1C1B21);
   final Color accentPurple = const Color(0xFFB388FF);
@@ -95,7 +95,6 @@ class _AllConfig2State extends State<AllConfig2> {
     });
   }
 
-  // --- 編輯彈窗：同步深色樣式與現代化配置 ---
   void _editReport(int index) {
     final report = _filteredReports[index];
     final originalIndex = _reports.indexOf(report);
@@ -222,7 +221,7 @@ class _AllConfig2State extends State<AllConfig2> {
     }
   }
 
-  // --- UI 組件：保持與主系統一致 ---
+
   Widget _sectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(top: 20, bottom: 8),

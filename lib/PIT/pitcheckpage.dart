@@ -25,7 +25,6 @@ class _PitCheckPageState extends State<PitCheckPage> with SingleTickerProviderSt
   Uint8List? _serverImageBytes;
   final ImagePicker _picker = ImagePicker();
 
-  // --- 配色方案 ---
   final Color bgDark = const Color(0xFF0A0E14);
   final Color cardDark = const Color(0xFF161B22);
   final Color primaryCyan = const Color(0xFF64FFDA);
@@ -33,7 +32,6 @@ class _PitCheckPageState extends State<PitCheckPage> with SingleTickerProviderSt
   final Color textLight = const Color(0xFFE6F1FF);
   final Color textDim = const Color(0xFF8B949E);
 
-  // --- 資料模型 ---
   String _description = "";
   String _selectedDrivetrain = "Swerve";
   int _maxBallCapacity = 0;
@@ -54,7 +52,6 @@ class _PitCheckPageState extends State<PitCheckPage> with SingleTickerProviderSt
     _fetchExistingData();
   }
 
-  /// 1. 抓取現有數據 (含 Ngrok 跳過警告 Header)
   Future<void> _fetchExistingData() async {
     try {
       final url = '${Api.serverIp}/v1/pit/get-data?roomName=${Uri.encodeComponent(widget.roomName)}&teamNumber=${widget.teamNumber}';
@@ -92,7 +89,6 @@ class _PitCheckPageState extends State<PitCheckPage> with SingleTickerProviderSt
     }
   }
 
-  /// 2. 提交數據 (含 Ngrok 跳過警告 Header)
   Future<void> _submitFullData() async {
     if (_isSubmitting) return;
     setState(() => _isSubmitting = true);
@@ -151,12 +147,11 @@ class _PitCheckPageState extends State<PitCheckPage> with SingleTickerProviderSt
     }
   }
 
-  /// 3. 圖片選取 (壓縮設定)
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? file = await _picker.pickImage(
         source: source,
-        imageQuality: 25, // 壓縮圖片減少傳輸壓力
+        imageQuality: 25,
         maxWidth: 800,
       );
       if (file != null) {

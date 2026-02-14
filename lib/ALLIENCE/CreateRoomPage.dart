@@ -7,7 +7,7 @@ import 'api.dart';
 
 class CreateRoomPage extends StatefulWidget {
   final String? initialRoomName;
-  // 資料結構：{"1": ["B1", "B2", "B3", "R1", "R2", "R3"], "2": [...]}
+
   final Map<String, List<String>>? allMatchesData;
 
   const CreateRoomPage({super.key, this.initialRoomName, this.allMatchesData});
@@ -17,7 +17,7 @@ class CreateRoomPage extends StatefulWidget {
 }
 
 class _CreateRoomPageState extends State<CreateRoomPage> {
-  // --- 色彩風格 (與 AdminConfig 統一) ---
+
   final Color darkBg = const Color(0xFF0F0E13);
   final Color surfaceDark = const Color(0xFF1C1B21);
   final Color accentPurple = const Color(0xFFB388FF);
@@ -52,12 +52,11 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
       final prefs = await SharedPreferences.getInstance();
       final String? currentUserName = prefs.getString('username');
 
-      // 構建請求主體
-      // 注意：後端 index.js 的 /v1/rooms/create 會讀取 'allMatches' 欄位
+
       final Map<String, dynamic> requestBody = {
         'name': name,
         'owner': currentUserName ?? "Admin",
-        'allMatches': widget.allMatchesData, // 傳送完整的 TBA 賽程清單
+        'allMatches': widget.allMatchesData,
       };
 
       final response = await http.post(
@@ -68,7 +67,7 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (mounted) {
-          // 成功後，跳回主畫面，讓主畫面重新抓取 Room List
+
           Navigator.of(context).popUntil((route) => route.isFirst);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Room '$name' initialized with ${widget.allMatchesData?.length ?? 0} matches.")),
@@ -136,7 +135,7 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
             children: [
-              // --- TBA 數據同步狀態卡片 ---
+
               _buildTbaInfoCard(matchCount),
 
               const SizedBox(height: 40),
@@ -147,7 +146,6 @@ class _CreateRoomPageState extends State<CreateRoomPage> {
               ),
               const SizedBox(height: 16),
 
-              // 房間名稱輸入框
               TextField(
                 controller: _roomNameController,
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),

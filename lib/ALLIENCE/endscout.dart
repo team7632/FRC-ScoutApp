@@ -7,8 +7,8 @@ import 'startscout.dart';
 
 class RatingPage extends StatefulWidget {
   final String roomName;
-  final int reportIndex; // 用於傳統索引
-  final Map<String, dynamic> reportData; // 包含 matchNumber 與 teamNumber
+  final int reportIndex;
+  final Map<String, dynamic> reportData;
 
   const RatingPage({
     super.key,
@@ -46,7 +46,7 @@ class _RatingPageState extends State<RatingPage> {
   @override
   void initState() {
     super.initState();
-    // 鎖定直向
+
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
 
@@ -62,9 +62,9 @@ class _RatingPageState extends State<RatingPage> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'roomName': widget.roomName,
-          'index': widget.reportIndex, // 傳統索引
-          'matchNumber': widget.reportData['matchNumber'], // 精準索引 1
-          'teamNumber': widget.reportData['teamNumber'],   // 精準索引 2
+          'index': widget.reportIndex,
+          'matchNumber': widget.reportData['matchNumber'],
+          'teamNumber': widget.reportData['teamNumber'],
           'rating': _selectedRating,
           'accuracy': (_accuracyRating * 100).toInt(),
           'notes': _notesController.text.isEmpty ? "No special notes." : _notesController.text,
@@ -72,7 +72,7 @@ class _RatingPageState extends State<RatingPage> {
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200 && mounted) {
-        // 成功後顯示提示並跳轉
+
         _showSuccessAndExit();
       } else {
         _showError("UPLOAD FAILED", "Server status: ${response.statusCode}");

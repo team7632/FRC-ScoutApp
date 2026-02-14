@@ -27,14 +27,14 @@ class ScoutingPage extends StatefulWidget {
 }
 
 class _ScoutingPageState extends State<ScoutingPage> {
-  // --- 深色配色方案 ---
+
   final Color darkBg = const Color(0xFF0F0E13);
   final Color surfaceDark = const Color(0xFF1C1B21);
   final Color primaryPurple = const Color(0xFF7E57C2);
   final Color accentPurple = const Color(0xFFB388FF);
-  final Color allianceColor = const Color(0xFF7E57C2); // 預設紫色，可根據位置動態變更
+  final Color allianceColor = const Color(0xFF7E57C2);
 
-  // --- 數據狀態 ---
+
   int _autoBalls = 0, _teleBalls = 0;
   bool _isLeave = false, _isHanging = false;
   int _endgameLevel = 0;
@@ -92,7 +92,7 @@ class _ScoutingPageState extends State<ScoutingPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 根據陣營動態決定標籤顏色
+
     final Color posColor = widget.position.startsWith('Red') ? Colors.redAccent : Colors.blueAccent;
 
     return Scaffold(
@@ -207,7 +207,7 @@ class _ScoutingPageState extends State<ScoutingPage> {
     );
   }
 
-  // --- UI 元件集 ---
+
 
   Widget _buildSection({required String title, required IconData icon, required List<Widget> children}) {
     return Container(

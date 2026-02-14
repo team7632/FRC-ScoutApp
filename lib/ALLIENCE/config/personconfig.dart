@@ -13,7 +13,7 @@ class PersonConfigPage extends StatefulWidget {
 class _PersonConfigPageState extends State<PersonConfigPage> {
   final TextEditingController _ipController = TextEditingController();
 
-  // --- 深色配色方案 ---
+
   final Color darkBg = const Color(0xFF0F0E13);
   final Color surfaceDark = const Color(0xFF1C1B21);
   final Color accentPurple = const Color(0xFFB388FF);
@@ -30,11 +30,11 @@ class _PersonConfigPageState extends State<PersonConfigPage> {
     await prefs.setString('custom_ip', newIp);
     Api.serverIp = newIp;
 
-    HapticFeedback.mediumImpact(); // 加入物理回饋
+    HapticFeedback.mediumImpact();
 
     if (!mounted) return;
 
-    // 同步深色風格的 SnackBar
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -122,7 +122,7 @@ class _PersonConfigPageState extends State<PersonConfigPage> {
                       ),
                       const SizedBox(height: 16),
 
-                      // 還原預設按鈕
+
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
@@ -167,7 +167,7 @@ class _PersonConfigPageState extends State<PersonConfigPage> {
 
                 const SizedBox(height: 48),
 
-                // 儲存按鈕
+
                 Container(
                   decoration: BoxDecoration(
                     boxShadow: [

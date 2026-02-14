@@ -15,11 +15,11 @@ class GetFromTheBlueAlliance extends StatefulWidget {
 }
 
 class _GetFromTheBlueAllianceState extends State<GetFromTheBlueAlliance> {
-  // --- 深色配色方案 ---
+
   final Color darkBg = const Color(0xFF0F0E13);
   final Color surfaceDark = const Color(0xFF1C1B21);
-  final Color accentPurple = const Color(0xFFB388FF); // 2026 代表色
-  final Color accentBlue = const Color(0xFF40C4FF);   // 2025 代表色
+  final Color accentPurple = const Color(0xFFB388FF);
+  final Color accentBlue = const Color(0xFF40C4FF);
 
   List<dynamic> _allEvents = [];
   List<dynamic> _filteredEvents = [];

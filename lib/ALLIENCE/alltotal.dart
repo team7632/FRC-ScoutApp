@@ -6,10 +6,9 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import '../PIT/pitcheckpage.dart'; // 請確保路徑正確
-import 'api.dart'; // 請確保 Api.serverIp 定義正確
+import '../PIT/pitcheckpage.dart';
+import 'api.dart';
 
-// --- 1. 高階路徑繪製器：支援 Swerve 模組與邊界保護 ---
 class AdvancedPathPainter extends CustomPainter {
   final List<dynamic> rawPoints;
   final double progress;
@@ -37,7 +36,7 @@ class AdvancedPathPainter extends CustomPainter {
         )
     ).toList();
 
-    // 1. 繪製發光路徑軌跡
+
     final linePaint = Paint()
       ..color = const Color(0xFFB388FF).withOpacity(0.3)
       ..style = PaintingStyle.stroke
@@ -65,7 +64,7 @@ class AdvancedPathPainter extends CustomPainter {
         double h1 = double.parse(rawPoints[currentIndex]['h'].toString());
         double h2 = double.parse(rawPoints[currentIndex + 1]['h'].toString());
 
-        // 角度插值優化
+
         double diff = (h2 - h1) % (2 * math.pi);
         if (diff > math.pi) diff -= 2 * math.pi;
         if (diff < -math.pi) diff += 2 * math.pi;
@@ -79,7 +78,6 @@ class AdvancedPathPainter extends CustomPainter {
       }
     }
 
-    // 3. 繪製點位與標籤 (具備邊界感知)
     for (int i = 0; i < points.length; i++) {
       final p = rawPoints[i];
       final pos = points[i];
@@ -98,13 +96,13 @@ class AdvancedPathPainter extends CustomPainter {
   }
 
   void _drawSwerveRobotModel(Canvas canvas, double rotVel, Offset velocity) {
-    // 機器人本體 (16x16 在小卡片中較合適)
+
     final bodyPaint = Paint()..color = const Color(0xFF7E57C2);
     canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: 16, height: 16), bodyPaint);
     canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: 16, height: 16),
         Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 0.5);
 
-    // 四個 Swerve 模組
+
     List<Offset> modules = [const Offset(-6, -6), const Offset(6, -6), const Offset(-6, 6), const Offset(6, 6)];
     for (var modPos in modules) {
       Offset tangent = Offset(-modPos.dy, modPos.dx) * (rotVel * 0.5);
@@ -119,7 +117,7 @@ class AdvancedPathPainter extends CustomPainter {
       );
       canvas.restore();
     }
-    // 車頭向前的綠色條
+
     canvas.drawRect(const Rect.fromLTWH(-8, -8, 16, 2.5), Paint()..color = Colors.greenAccent);
   }
 
@@ -216,7 +214,7 @@ class _PathPreviewCardState extends State<PathPreviewCard> with SingleTickerProv
   }
 }
 
-// --- 3. 排行榜主頁面 ---
+
 class AllTotalPage extends StatefulWidget {
   final String roomName;
   const AllTotalPage({super.key, required this.roomName});

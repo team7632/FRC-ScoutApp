@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 
-// --- 資料模型 ---
 class Waypoint {
-  Offset position; // 儲存 0.0 ~ 1.0 的百分比座標
+  Offset position;
   double heading;
   double waitTime;
   String command;
@@ -25,7 +24,6 @@ class Waypoint {
 
 enum EditMode { addOrRotate, toggleWait, toggleCommand }
 
-// --- 主元件 ---
 class BezierPathCanvas extends StatefulWidget {
   final Function(String) onPathJsonChanged;
   final String drivetrain;
@@ -69,7 +67,7 @@ class _BezierPathCanvasState extends State<BezierPathCanvas> with TickerProvider
         )).toList();
       });
     } catch (e) {
-      debugPrint("路徑還原失敗: $e");
+      debugPrint("Path Undo Failed: $e");
     }
   }
 
@@ -77,7 +75,7 @@ class _BezierPathCanvasState extends State<BezierPathCanvas> with TickerProvider
     widget.onPathJsonChanged(jsonEncode(waypoints.map((w) => w.toJson()).toList()));
   }
 
-  // --- 彈窗邏輯 (Heading, Wait, Command) ---
+
   void _showHeadingPicker(int index) {
     double tempHeading = waypoints[index].heading;
     showDialog(
@@ -112,7 +110,7 @@ class _BezierPathCanvasState extends State<BezierPathCanvas> with TickerProvider
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("cancel")),
             ElevatedButton(onPressed: () {
               setState(() => waypoints[index].heading = tempHeading);
               _syncToParent();
@@ -143,11 +141,11 @@ class _BezierPathCanvasState extends State<BezierPathCanvas> with TickerProvider
   void _inputCommand(int index) {
     final ctrl = TextEditingController(text: waypoints[index].command);
     showDialog(context: context, builder: (context) => AlertDialog(
-      title: Text("動作指令"),
-      content: TextField(controller: ctrl, decoration: const InputDecoration(hintText: "例如: shoot")),
+      title: Text("Command"),
+      content: TextField(controller: ctrl, decoration: const InputDecoration(hintText: "ex.shoot")),
       actions: [
-        TextButton(onPressed: () { setState(() => waypoints[index].command = ""); _syncToParent(); Navigator.pop(context); }, child: const Text("清除")),
-        TextButton(onPressed: () { setState(() => waypoints[index].command = ctrl.text); _syncToParent(); Navigator.pop(context); }, child: const Text("確定")),
+        TextButton(onPressed: () { setState(() => waypoints[index].command = ""); _syncToParent(); Navigator.pop(context); }, child: const Text("clear")),
+        TextButton(onPressed: () { setState(() => waypoints[index].command = ctrl.text); _syncToParent(); Navigator.pop(context); }, child: const Text("sure")),
       ],
     ));
   }
@@ -267,7 +265,7 @@ class _BezierPathCanvasState extends State<BezierPathCanvas> with TickerProvider
   }
 }
 
-// --- 繪製器 (核心 Swerve 模擬) ---
+
 class BezierPainter extends CustomPainter {
   final List<Waypoint> nodes;
   final double progress;
@@ -282,18 +280,18 @@ class BezierPainter extends CustomPainter {
     if (nodes.isEmpty) return;
     List<Offset> realPoints = nodes.map((n) => Offset(n.position.dx * size.width, n.position.dy * size.height)).toList();
 
-    // 1. 繪製路徑連線
+
     final pathPaint = Paint()..color = Colors.white24..style = PaintingStyle.stroke..strokeWidth = 2;
     for (int i = 0; i < realPoints.length - 1; i++) {
       canvas.drawLine(realPoints[i], realPoints[i + 1], pathPaint);
     }
 
-    // 2. 繪製動畫機器人 (Swerve 狀態)
+
     if (showAnimation && realPoints.length >= 2 && activeSeg < realPoints.length - 1) {
       _drawSwerveRobot(canvas, realPoints);
     }
 
-    // 3. 繪製標點
+
     for (int i = 0; i < realPoints.length; i++) {
       final pos = realPoints[i];
       final node = nodes[i];
@@ -325,32 +323,31 @@ class BezierPainter extends CustomPainter {
     double currentHeading = h1 + diff * progress;
 
     // --- Swerve 運動學計算 ---
-    Offset velocity = p2 - p1; // 移動方向向量
-    double rotVel = diff;      // 旋轉速度量
+    Offset velocity = p2 - p1;
+    double rotVel = diff;
 
     canvas.save();
     canvas.translate(currentPos.dx, currentPos.dy);
     canvas.rotate(currentHeading);
 
-    // 繪製底盤本體
+
     canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: 32, height: 32), Paint()..color = Colors.blueAccent.withOpacity(0.6));
     canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: 32, height: 32), Paint()..color = Colors.white..style = PaintingStyle.stroke);
 
-    // 四個模組位置 (左前, 右前, 左後, 右後)
+
     List<Offset> modules = [const Offset(-12, -12), const Offset(12, -12), const Offset(-12, 12), const Offset(12, 12)];
 
     for (var modOffset in modules) {
-      // 旋轉造成的切線速度 (垂直於模組半徑)
+
       Offset tangent = Offset(-modOffset.dy, modOffset.dx) * (rotVel * 0.5);
-      // 平移向量轉為機器人局部坐標
+
       Offset localMove = _rotateOffset(velocity, -currentHeading);
-      // 向量疊加得出輪子指向
+
       Offset modVec = localMove + tangent;
 
       _drawModuleWheel(canvas, modOffset, modVec.direction + (math.pi / 2));
     }
 
-    // 車頭綠色標記
     canvas.drawRect(Rect.fromLTWH(-16, -16, 32, 4), Paint()..color = Colors.greenAccent);
     canvas.restore();
   }

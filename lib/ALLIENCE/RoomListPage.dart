@@ -14,7 +14,7 @@ class RoomListPage extends StatefulWidget {
 }
 
 class _RoomListPageState extends State<RoomListPage> {
-  // --- 色彩定義 (與首頁同步) ---
+
   final Color darkBg = const Color(0xFF0F0E13);
   final Color surfaceDark = const Color(0xFF1C1B21);
   final Color primaryPurple = const Color(0xFF7E57C2);
@@ -91,10 +91,10 @@ class _RoomListPageState extends State<RoomListPage> {
             icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70, size: 20),
             onPressed: () {
               HapticFeedback.mediumImpact();
-              // 強制跳轉回首頁並清空所有路由棧
+
               Navigator.pushAndRemoveUntil(
                 context,
-                MaterialPageRoute(builder: (context) => const MyHomePage()), // 指向你的首頁
+                MaterialPageRoute(builder: (context) => const MyHomePage()),
                     (route) => false,
               );
             },

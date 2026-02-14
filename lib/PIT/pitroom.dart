@@ -16,13 +16,12 @@ class PitRoom extends StatefulWidget {
 }
 
 class _PitRoomState extends State<PitRoom> {
-  // --- 視覺風格定義 ---
+
   final Color primaryPurple = const Color(0xFF7E57C2);
   final Color accentPurple = const Color(0xFFB388FF);
   final Color surfaceDark = const Color(0xFF111015);
   final Color cardColor = Colors.white.withOpacity(0.05);
 
-  // --- 狀態變數 ---
   String? _selectedRoom;
   List<String> _allTeams = [];
   List<String> _filteredTeams = [];
@@ -49,7 +48,6 @@ class _PitRoomState extends State<PitRoom> {
     super.dispose();
   }
 
-  // ✅ 隊伍搜尋過濾邏輯
   void _onSearchChanged() {
     setState(() {
       _filteredTeams = _allTeams
@@ -58,7 +56,6 @@ class _PitRoomState extends State<PitRoom> {
     });
   }
 
-  // ✅ 取得房間內所有隊伍
   Future<void> _fetchAndParseTeams() async {
     if (_selectedRoom == null) return;
     setState(() {
@@ -107,7 +104,6 @@ class _PitRoomState extends State<PitRoom> {
     }
   }
 
-  // ✅ 批次同步隊伍 Pit 狀態
   Future<void> _syncPitStatus() async {
     const int batchSize = 5;
     for (int i = 0; i < _allTeams.length; i += batchSize) {
@@ -137,7 +133,6 @@ class _PitRoomState extends State<PitRoom> {
     }
   }
 
-  // ✅ 房間搜尋彈窗邏輯
   void _showRoomSearchDialog() {
     List<String> dialogFilteredRooms = widget.availableRooms;
 
